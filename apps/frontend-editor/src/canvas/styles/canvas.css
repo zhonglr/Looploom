@@ -201,6 +201,19 @@
   z-index: 2;
 }
 
+.canvas-drag-layer-settling {
+  animation: canvas-settle-fade 190ms ease-out forwards;
+}
+
+@keyframes canvas-settle-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
 .canvas-drag-ghost {
   position: absolute;
   display: inline-flex;
@@ -289,6 +302,7 @@
 .canvas-drop-rejected {
   position: absolute;
   z-index: 1;
+  transform: translate(-50%, -100%);
   padding: var(--spectrum-spacing-50) var(--spectrum-spacing-100);
   border-radius: var(--spectrum-corner-radius-small-default);
   background: var(--spectrum-negative-color-700);
@@ -296,6 +310,10 @@
   font-size: var(--spectrum-font-size-100);
   line-height: var(--spectrum-line-height-100);
   white-space: nowrap;
+}
+
+.canvas-drop-rejected-below {
+  transform: translate(-50%, 0);
 }
 
 .canvas-inline-editor {
