@@ -17,6 +17,8 @@ export type DropTarget =
       parentId: CanvasNodeId
       index: number
       placement: DropPlacement
+      /** True when dropping here wouldn't change the document layout. */
+      noop: boolean
     }
   | {
       status: 'rejected'
@@ -64,6 +66,24 @@ function findDeepestContainerContaining(
   return deepest
 }
 
+function validTarget(
+  parentId: CanvasNodeId,
+  index: number,
+  placement: DropPlacement,
+  dragNodeId: CanvasNodeId,
+  geometry: NodeGeometrySnapshot,
+): Extract<DropTarget, { status: 'valid' }> {
+  const me = geometry.get(dragNodeId)
+  const sameParent = me?.parentId === parentId
+  const ownIndex =
+    sameParent && geometry.get(parentId)
+      ? geometry.get(parentId)!.childIds.indexOf(dragNodeId)
+      : -1
+  const noop =
+    sameParent && (index === ownIndex || index === ownIndex + 1)
+  return { status: 'valid', parentId, index, placement, noop }
+}
+
 function insertPointInContainer(
   geometry: NodeGeometrySnapshot,
   parentId: CanvasNodeId,
@@ -80,7 +100,13 @@ function insertPointInContainer(
     .filter((entry): entry is NodeGeometrySnapshotEntry => entry !== undefined)
 
   if (children.length === 0) {
-    return { status: 'valid', parentId, index: 0, placement: 'inside' }
+    return {
+      status: 'valid',
+      parentId,
+      index: 0,
+      placement: 'inside',
+      noop: false,
+    }
   }
 
   const horizontal = isHorizontalLayout(parent.layout)
@@ -90,24 +116,20 @@ function insertPointInContainer(
     if (!containsPoint(child.rect, pointerWorld)) continue
 
     if (child.id === dragNodeId) {
-      return {
-        status: 'valid',
-        parentId,
-        index: i,
-        placement: 'before',
-      }
+      return validTarget(parentId, i, 'before', dragNodeId, geometry)
     }
 
     const before = horizontal
       ? pointerWorld.x < rectCenterX(child.rect)
       : pointerWorld.y < rectCenterY(child.rect)
     const index = before ? i : i + 1
-    return {
-      status: 'valid',
+    return validTarget(
       parentId,
       index,
-      placement: before ? 'before' : 'after',
-    }
+      before ? 'before' : 'after',
+      dragNodeId,
+      geometry,
+    )
   }
 
   return findNearestGap(
@@ -149,12 +171,13 @@ function findNearestGap(
   if (isWithinSubtreeOf(geometry, parentId, dragNodeId)) {
     return { status: 'rejected', reason: 'cycle' }
   }
-  return {
-    status: 'valid',
+  return validTarget(
     parentId,
-    index: nearestIndex,
-    placement: nearestIndex < children.length ? 'before' : 'after',
-  }
+    nearestIndex,
+    nearestIndex < children.length ? 'before' : 'after',
+    dragNodeId,
+    geometry,
+  )
 }
 
 function isWithinSubtreeOf(
