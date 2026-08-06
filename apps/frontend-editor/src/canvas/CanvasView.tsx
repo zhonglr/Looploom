@@ -189,7 +189,7 @@ export function CanvasView() {
           onPointerLeave={interactions.handlePointerLeave}
           onDoubleClick={interactions.handleDoubleClick}
         />
-        {interactions.dragState.status === 'idle' && interactions.settle === null && (
+        {(interactions.dragState.status === 'idle' || interactions.dragState.status === 'pending') && interactions.settle === null && (
           <SelectionOverlay
             geometry={interactions.geometry}
             viewport={viewport}

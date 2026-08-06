@@ -2,12 +2,14 @@ import type { CanvasNodeId } from '../core/canvas-node'
 import type { DropTarget } from './drop-target'
 import type { Point } from '../viewport/viewport'
 
-export const DRAG_THRESHOLD = 8
+export const DRAG_THRESHOLD = 12
+export const DRAG_MIN_TIME = 120
 
 export interface DragState {
   status: 'idle' | 'pending' | 'dragging'
   nodeId: CanvasNodeId | null
   startScreen: Point | null
+  startTime: number
   pointerScreen: Point
   ghostX: number
   ghostY: number
@@ -28,6 +30,7 @@ export const IDLE_DRAG_STATE: DragState = {
   status: 'idle',
   nodeId: null,
   startScreen: null,
+  startTime: 0,
   pointerScreen: { x: 0, y: 0 },
   ghostX: 0,
   ghostY: 0,
@@ -64,6 +67,7 @@ export class DragController {
       status: 'pending',
       nodeId,
       startScreen,
+      startTime: Date.now(),
       pointerScreen: startScreen,
       ghostX: startScreen.x,
       ghostY: startScreen.y,
@@ -83,7 +87,9 @@ export class DragController {
       if (!start) return false
       const dx = pointerScreen.x - start.x
       const dy = pointerScreen.y - start.y
-      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return false
+      const distance = Math.hypot(dx, dy)
+      const elapsed = Date.now() - this.state.startTime
+      if (distance < DRAG_THRESHOLD || elapsed < DRAG_MIN_TIME) return false
       this.state = {
         ...this.state,
         status: 'dragging',

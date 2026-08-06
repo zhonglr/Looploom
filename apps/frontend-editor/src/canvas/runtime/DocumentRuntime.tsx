@@ -300,8 +300,9 @@ function InlineEditor({
   onCancel,
 }: InlineEditorProps) {
   const [value, setValue] = useState(initialValue)
-  const ref = useRef<HTMLTextAreaElement>(null)
+  const ref = useRef<HTMLTextAreaElement | HTMLInputElement>(null)
   const settledRef = useRef(false)
+  const isButton = node.kind === 'button'
 
   useEffect(() => {
     if (editingValueRef) editingValueRef.current = initialValue
@@ -323,8 +324,53 @@ function InlineEditor({
     const element = ref.current
     if (!element) return
     element.focus()
-    element.setSelectionRange(element.value.length, element.value.length)
+    if ('setSelectionRange' in element) {
+      element.setSelectionRange(element.value.length, element.value.length)
+    }
   }, [])
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      if (!isButton) {
+        event.preventDefault()
+        commit()
+      }
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      cancel()
+    }
+    event.stopPropagation()
+  }
+
+  const className = isButton
+    ? 'canvas-inline-editor canvas-inline-editor-button'
+    : 'canvas-inline-editor'
+
+  if (isButton) {
+    return (
+      <input
+        ref={(element) => {
+          ref.current = element
+          if (element) {
+            registry.set(node.id, element)
+          } else {
+            registry.delete(node.id)
+          }
+        }}
+        type="text"
+        className={className}
+        data-canvas-node-id={node.id}
+        value={value}
+        spellCheck={false}
+        onChange={(event) => {
+          setValue(event.target.value)
+          if (editingValueRef) editingValueRef.current = event.target.value
+        }}
+        onKeyDown={handleKeyDown}
+        onBlur={() => commit()}
+      />
+    )
+  }
 
   return (
     <textarea
@@ -336,7 +382,7 @@ function InlineEditor({
           registry.delete(node.id)
         }
       }}
-      className="canvas-inline-editor"
+      className={className}
       data-canvas-node-id={node.id}
       value={value}
       rows={1}
@@ -345,16 +391,7 @@ function InlineEditor({
         setValue(event.target.value)
         if (editingValueRef) editingValueRef.current = event.target.value
       }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' && !event.shiftKey) {
-          event.preventDefault()
-          commit()
-        } else if (event.key === 'Escape') {
-          event.preventDefault()
-          cancel()
-        }
-        event.stopPropagation()
-      }}
+      onKeyDown={handleKeyDown}
       onBlur={() => commit()}
     />
   )

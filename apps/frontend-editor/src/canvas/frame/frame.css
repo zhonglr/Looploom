@@ -149,7 +149,7 @@ body {
 
 .canvas-inline-editor {
   display: inline-block;
-  box-sizing: content-box;
+  box-sizing: border-box;
   margin: 0;
   padding: 0;
   border: none;
@@ -164,4 +164,25 @@ body {
   resize: none;
   overflow: hidden;
   vertical-align: baseline;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  min-height: 21px;
+  max-height: 21px;
+}
+
+.canvas-inline-editor-button {
+  box-sizing: border-box;
+  padding: 6px 14px;
+  border: 1px solid var(--spectrum-gray-400);
+  border-radius: var(--spectrum-corner-radius-small-default);
+  background: var(--spectrum-background-layer-2-color);
+  color: var(--spectrum-neutral-content-color-default);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.3;
+  outline: none;
+  min-width: 40px;
 }

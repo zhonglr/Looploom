@@ -130,8 +130,7 @@ export function useCanvasInteractions({
     if (
       dragState.status !== 'dragging' ||
       !dragState.drop ||
-      dragState.drop.status !== 'valid' ||
-      dragState.drop.noop
+      dragState.drop.status !== 'valid'
     )
       return null
     return computeInsertionPreview(dragState.drop, geometryRef.current, dragState.nodeId)

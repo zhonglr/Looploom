@@ -47,7 +47,7 @@ export function DragOverlay({
   const rejected = drag.drop?.status === 'rejected' ? drag.drop : null
 
   const noop = valid ? valid.noop : false
-  const highlightId = valid && !noop ? valid.parentId : null
+  const highlightId = valid ? valid.parentId : null
   const draggedRectId = drag.nodeId ?? draggedNode?.id
   const draggedRect = draggedRectId
     ? geometry.get(draggedRectId)?.rect
@@ -56,7 +56,7 @@ export function DragOverlay({
     livePreview && valid && !noop && livePreview.parentId === valid.parentId
       ? livePreview.rect
       : undefined
-  const insertion = valid && !noop
+  const insertion = valid
     ? insertionMetrics(
         valid.parentId,
         valid.index,
