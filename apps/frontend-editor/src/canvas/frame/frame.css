@@ -83,6 +83,7 @@ body {
   color: var(--spectrum-neutral-content-color-default);
   font-size: 14px;
   line-height: 1.5;
+  vertical-align: text-bottom;
 }
 
 .canvas-node-button {
@@ -163,14 +164,12 @@ body {
   outline: none;
   resize: none;
   overflow: hidden;
-  vertical-align: baseline;
+  vertical-align: text-bottom;
   white-space: pre-wrap;
   word-wrap: break-word;
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
-  min-height: 21px;
-  max-height: 21px;
 }
 
 .canvas-inline-editor-button {
