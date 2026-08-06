@@ -1,0 +1,40 @@
+@import '@spectrum-web-components/styles/tokens-v2/spectrum/custom-vars.css';
+@import '@spectrum-web-components/styles/tokens-v2/spectrum/custom-medium-vars.css';
+@import '@spectrum-web-components/styles/tokens-v2/spectrum/custom-dark-vars.css';
+
+:root {
+  color-scheme: dark;
+  background: var(--spectrum-background-layer-1-color);
+  color: var(--spectrum-neutral-content-color-default);
+  font-family: var(--spectrum-sans-font-family-stack);
+  font-size: var(--spectrum-font-size-100);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  font-size: var(--spectrum-font-size-100);
+  line-height: var(--spectrum-line-height-100);
+}
+
+:focus-visible {
+  outline: var(--spectrum-focus-indicator-thickness) solid
+    var(--spectrum-focus-indicator-color);
+  outline-offset: 2px;
+}
+
+button {
+  font-family: inherit;
+}

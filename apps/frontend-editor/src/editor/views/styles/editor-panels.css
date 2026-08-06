@@ -1,0 +1,161 @@
+.editor-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--spectrum-background-layer-1-color);
+}
+
+.editor-panel-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: var(--spectrum-spacing-100) var(--spectrum-spacing-200);
+  border-bottom: 1px solid var(--spectrum-gray-300);
+}
+
+.editor-panel-title {
+  margin: 0;
+  font-size: var(--spectrum-font-size-200);
+  font-weight: var(--spectrum-medium-font-weight);
+  line-height: var(--spectrum-line-height-100);
+  color: var(--spectrum-neutral-content-color-default);
+}
+
+.editor-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spectrum-spacing-200);
+}
+
+.editor-panel-section {
+  margin-top: var(--spectrum-spacing-300);
+}
+
+.editor-panel-section-title {
+  margin: 0 0 var(--spectrum-spacing-100);
+  color: var(--spectrum-neutral-subdued-content-color-default);
+  font-size: var(--spectrum-font-size-100);
+  font-weight: var(--spectrum-medium-font-weight);
+  line-height: var(--spectrum-line-height-100);
+}
+
+.editor-panel-hint {
+  margin: 0;
+  color: var(--spectrum-neutral-subdued-content-color-default);
+  font-size: var(--spectrum-font-size-100);
+  line-height: var(--spectrum-line-height-100);
+}
+
+.editor-panel-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--spectrum-spacing-100);
+  padding: var(--spectrum-spacing-100) var(--spectrum-spacing-200);
+  border-top: 1px solid var(--spectrum-gray-300);
+  color: var(--spectrum-neutral-subdued-content-color-default);
+  font-size: var(--spectrum-font-size-100);
+  line-height: var(--spectrum-line-height-100);
+}
+
+.editor-page-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.editor-page-item {
+  padding: var(--spectrum-spacing-100) var(--spectrum-spacing-200);
+  border-radius: var(--spectrum-corner-radius-small-default);
+  color: var(--spectrum-neutral-content-color-default);
+  font-size: var(--spectrum-font-size-100);
+  line-height: var(--spectrum-line-height-100);
+}
+
+.editor-page-item-active {
+  background: var(--spectrum-background-layer-2-color);
+  color: var(--spectrum-accent-content-color-default);
+}
+
+.editor-property-list {
+  margin: 0;
+}
+
+.editor-property-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spectrum-spacing-200);
+  padding: var(--spectrum-spacing-50) 0;
+  border-bottom: 1px solid var(--spectrum-gray-300);
+}
+
+.editor-property-row:last-child {
+  border-bottom: 0;
+}
+
+.editor-property-row dt {
+  color: var(--spectrum-neutral-subdued-content-color-default);
+  font-size: var(--spectrum-font-size-100);
+  line-height: var(--spectrum-line-height-100);
+}
+
+.editor-property-row dd {
+  margin: 0;
+  color: var(--spectrum-neutral-content-color-default);
+  font-size: var(--spectrum-font-size-100);
+  line-height: var(--spectrum-line-height-100);
+}
+
+.editor-tree {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.editor-tree-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spectrum-spacing-100);
+  width: 100%;
+  padding-top: var(--spectrum-spacing-50);
+  padding-right: var(--spectrum-spacing-100);
+  padding-bottom: var(--spectrum-spacing-50);
+  padding-left: calc(var(--spectrum-spacing-100) * (var(--tree-indent) + 1));
+  border: 0;
+  border-radius: var(--spectrum-corner-radius-small-default);
+  background: transparent;
+  color: var(--spectrum-neutral-content-color-default);
+  font-family: inherit;
+  font-size: var(--spectrum-font-size-100);
+  line-height: var(--spectrum-line-height-100);
+  text-align: left;
+  cursor: pointer;
+}
+
+.editor-tree-item:hover {
+  background: var(--spectrum-background-layer-2-color);
+}
+
+.editor-tree-item-selected {
+  background: var(--spectrum-accent-subtle-background-color-default);
+  color: var(--spectrum-accent-content-color-default);
+}
+
+.editor-tree-kind {
+  color: var(--spectrum-neutral-subdued-content-color-default);
+}
+
+.editor-tree-item-selected .editor-tree-kind {
+  color: var(--spectrum-accent-content-color-default);
+}
+
+.editor-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -1,0 +1,11 @@
+{
+  "plugins": ["react", "typescript", "unicorn"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "rules": {
+    "react-in-jsx-scope": "off"
+  }
+}
