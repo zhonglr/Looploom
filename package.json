@@ -1,0 +1,12 @@
+{
+  "name": "looploom",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@10.13.1",
+  "scripts": {
+    "dev": "pnpm --filter frontend-editor dev",
+    "build": "pnpm --filter frontend-editor build",
+    "lint": "pnpm --filter frontend-editor lint",
+    "preview": "pnpm --filter frontend-editor preview"
+  }
+}

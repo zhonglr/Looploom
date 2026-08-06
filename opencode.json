@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "design-data-agent": {
+      "type": "local",
+      "command": ["npx", "-y", "@adobe/design-data-agent-mcp"],
+      "enabled": true
+    }
+  }
+}
