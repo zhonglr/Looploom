@@ -1,15 +1,11 @@
-import { useLayoutEffect, useState } from 'react'
-import type { RefObject } from 'react'
 import type { CanvasNode, CanvasNodeId } from '../core/canvas-node'
 import { nodeKindLabel } from '../core/canvas-node'
-import type { NodeElementRegistry } from '../runtime/DocumentRuntime'
+import type { NodeGeometrySnapshot, Rect } from '../dnd/geometry'
 import type { ViewportTransform } from '../viewport/viewport'
 
 export interface SelectionOverlayProps {
-  registry: NodeElementRegistry
-  viewportRef: RefObject<HTMLDivElement | null>
+  geometry: NodeGeometrySnapshot
   viewport: ViewportTransform
-  revision: number
   selection: CanvasNodeId | null
   selectedNode: CanvasNode | undefined
   hover: CanvasNodeId | null
@@ -23,23 +19,15 @@ interface OverlayRect {
 }
 
 export function SelectionOverlay({
-  registry,
-  viewportRef,
+  geometry,
   viewport,
-  revision,
   selection,
   selectedNode,
   hover,
 }: SelectionOverlayProps) {
-  const [selectedRect, setSelectedRect] = useState<OverlayRect | undefined>(undefined)
-  const [hoverRect, setHoverRect] = useState<OverlayRect | undefined>(undefined)
-
-  useLayoutEffect(() => {
-    setSelectedRect(selection ? rectFor(registry, viewportRef, selection) : undefined)
-    setHoverRect(
-      hover && hover !== selection ? rectFor(registry, viewportRef, hover) : undefined,
-    )
-  }, [registry, viewportRef, viewport, revision, selection, hover])
+  const selectedRect = selection ? rectFor(geometry, viewport, selection) : undefined
+  const hoverRect =
+    hover && hover !== selection ? rectFor(geometry, viewport, hover) : undefined
 
   return (
     <div className="canvas-overlay" aria-hidden="true">
@@ -68,20 +56,21 @@ export function SelectionOverlay({
 }
 
 function rectFor(
-  registry: NodeElementRegistry,
-  viewportRef: RefObject<HTMLDivElement | null>,
+  geometry: NodeGeometrySnapshot,
+  viewport: ViewportTransform,
   nodeId: CanvasNodeId,
 ): OverlayRect | undefined {
-  const element = registry.get(nodeId)
-  const viewport = viewportRef.current
-  if (!element || !viewport) return undefined
-  const viewportRect = viewport.getBoundingClientRect()
-  const elementRect = element.getBoundingClientRect()
+  const rect = geometry.get(nodeId)?.rect
+  if (!rect) return undefined
+  return worldRect(rect, viewport)
+}
+
+function worldRect(rect: Rect, viewport: ViewportTransform): OverlayRect {
   return {
-    left: elementRect.left - viewportRect.left,
-    top: elementRect.top - viewportRect.top,
-    width: elementRect.width,
-    height: elementRect.height,
+    left: rect.x * viewport.scale + viewport.panX,
+    top: rect.y * viewport.scale + viewport.panY,
+    width: rect.width * viewport.scale,
+    height: rect.height * viewport.scale,
   }
 }
 

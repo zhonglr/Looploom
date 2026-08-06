@@ -1,26 +1,16 @@
 import type { RefObject } from 'react'
 import type { CanvasNode, CanvasNodeId } from '../core/canvas-node'
-import type { DragState } from '../dnd/drag-controller'
-import type { DropTarget } from '../dnd/drop-target'
+import type { DragState, SettleState } from '../dnd/drag-controller'
 import type { NodeGeometrySnapshot, Rect } from '../dnd/geometry'
+import type { FramePreviewSlot } from '../frame/bridge'
 import type { ViewportTransform } from '../viewport/viewport'
 import { NodeContent } from '../runtime/DocumentRuntime'
 
 const DRAG_GHOST_OFFSET = 12
 const REJECTED_MESSAGE_GAP = 10
-const MIN_INSERTION_GAP = 12
-const MAX_INSERTION_GAP = 96
-const LAYOUT_GAP = 8
-
-export type SettleState =
-  | {
-      kind: 'placed'
-      target: Extract<DropTarget, { status: 'valid' }>
-      ghostX: number
-      ghostY: number
-    }
-  | { kind: 'rejected'; message: string }
-  | null
+export const MIN_INSERTION_GAP = 12
+export const MAX_INSERTION_GAP = 96
+export const LAYOUT_GAP = 8
 
 export interface DragOverlayProps {
   drag: DragState
@@ -29,6 +19,7 @@ export interface DragOverlayProps {
   viewportRef: RefObject<HTMLDivElement | null>
   viewport: ViewportTransform
   settle: SettleState
+  livePreview: FramePreviewSlot | null
 }
 
 export function DragOverlay({
@@ -38,6 +29,7 @@ export function DragOverlay({
   viewportRef,
   viewport,
   settle,
+  livePreview,
 }: DragOverlayProps) {
   if (drag.status !== 'dragging' && settle === null) return null
 
@@ -54,19 +46,33 @@ export function DragOverlay({
   const valid = target
   const rejected = drag.drop?.status === 'rejected' ? drag.drop : null
 
-  const highlightId = valid ? valid.parentId : null
+  const noop = valid ? valid.noop : false
+  const highlightId = valid && !noop ? valid.parentId : null
   const draggedRectId = drag.nodeId ?? draggedNode?.id
   const draggedRect = draggedRectId
     ? geometry.get(draggedRectId)?.rect
     : undefined
-  const insertion = valid
-    ? insertionMetrics(valid.parentId, valid.index, geometry, draggedRect)
+  const liveSlot =
+    livePreview && valid && !noop && livePreview.parentId === valid.parentId
+      ? livePreview.rect
+      : undefined
+  const insertion = valid && !noop
+    ? insertionMetrics(
+        valid.parentId,
+        valid.index,
+        geometry,
+        draggedRect,
+        draggedRectId,
+        liveSlot,
+        livePreview?.prevRect ?? null,
+        livePreview?.parentRect ?? undefined,
+      )
     : undefined
   const insertionRect = insertion?.line
   const insertionBand = insertion?.band
-  const highlightRect = highlightId
+  const highlightRect = insertion?.highlight ?? (highlightId
     ? geometry.get(highlightId)?.rect
-    : undefined
+    : undefined)
 
   const pointerInLayer = viewportRect
     ? {
@@ -103,7 +109,7 @@ export function DragOverlay({
       ].filter(Boolean).join(' ')}
       aria-hidden="true"
     >
-      {highlightRect && viewportRect && (
+{highlightRect && viewportRect && (
         <div
           className={[
             'canvas-drop-highlight',
@@ -174,17 +180,77 @@ function insertionMetrics(
   index: number,
   geometry: NodeGeometrySnapshot,
   draggedRect: Rect | undefined,
-): { line: Rect; band: Rect } | undefined {
+  draggedId?: CanvasNodeId | null,
+  liveSlot?: Rect,
+  livePrevRect?: Rect | null,
+  liveParentRect?: Rect,
+): {
+  line: Rect
+  band: Rect
+  highlight: Rect
+} | undefined {
   const parent = geometry.get(parentId)
   if (!parent) return undefined
   const horizontal = parent.layout === 'row'
 
-  const children = parent.childIds
+  // Neighbours are computed from the filtered list (dragged node removed) so
+  // the visual slot is where the node will land after removal.
+  const allChildren = parent.childIds
     .map((id) => geometry.get(id))
     .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined)
-  if (children.length === 0) return undefined
-  const prev = index > 0 ? children[index - 1] : undefined
-  const next = index < children.length ? children[index] : undefined
+  const children = allChildren.filter((entry) => entry.id !== draggedId)
+  const ownIndex = draggedId ? allChildren.findIndex((e) => e.id === draggedId) : -1
+  const adjustedIndex = ownIndex !== -1 && index > ownIndex ? index - 1 : index
+  const filteredIndex = Math.max(0, Math.min(adjustedIndex, children.length))
+
+  // A live slot is reported by the frame with the real layout sizes at the
+  // target position (the dragged node re-rendered inside the target container),
+  // so the overlay band tracks the exact slot the frame is showing and the
+  // highlight follows the parent as it grows to fit the slot. The insertion
+  // line sits in the gap on the leading side of the slot, clear of the
+  // skeleton; for a before-first insertion it marks the trailing boundary.
+  if (liveSlot) {
+    const prevEnd = livePrevRect
+      ? horizontal
+        ? livePrevRect.x + livePrevRect.width
+        : livePrevRect.y + livePrevRect.height
+      : undefined
+    const leading = horizontal ? liveSlot.x : liveSlot.y
+    const trailing = horizontal
+      ? liveSlot.x + liveSlot.width
+      : liveSlot.y + liveSlot.height
+    const linePos = prevEnd !== undefined
+      ? prevEnd + (leading - prevEnd) / 2
+      : trailing + LAYOUT_GAP / 2
+    const line = horizontal
+      ? { x: linePos, y: liveSlot.y, width: 0, height: liveSlot.height }
+      : { x: liveSlot.x, y: linePos, width: liveSlot.width, height: 0 }
+    return { line, band: liveSlot, highlight: liveParentRect ?? parent.rect }
+  }
+
+  // For same-parent moves the geometry still contains the dragged rect; dropping
+  // to own position is already flagged noop upstream, so we never reach here for noop.
+  if (children.length === 0) {
+    const slot = draggedRect
+      ? horizontal ? draggedRect.width : draggedRect.height
+      : MAX_INSERTION_GAP
+    const slotClamped = Math.max(MIN_INSERTION_GAP, Math.min(slot, MAX_INSERTION_GAP))
+    // Empty container: carve a padded slot inside the parent so the overlay has
+    // a stable target, and expand the highlight similarly to edge cases.
+    const band: Rect = horizontal
+      ? { x: parent.rect.x + LAYOUT_GAP, y: parent.rect.y + LAYOUT_GAP, width: slotClamped, height: Math.max(24, parent.rect.height - LAYOUT_GAP * 2) }
+      : { x: parent.rect.x + LAYOUT_GAP, y: parent.rect.y + LAYOUT_GAP, width: Math.max(24, parent.rect.width - LAYOUT_GAP * 2), height: slotClamped }
+    const line: Rect = horizontal
+      ? { x: band.x + band.width, y: band.y, width: 0, height: band.height }
+      : { x: band.x, y: band.y + band.height, width: band.width, height: 0 }
+    const highlight: Rect = horizontal
+      ? { ...parent.rect, width: parent.rect.width + slotClamped + LAYOUT_GAP }
+      : { ...parent.rect, height: parent.rect.height + slotClamped + LAYOUT_GAP }
+    return { line, band, highlight }
+  }
+
+  const prev = filteredIndex > 0 ? children[filteredIndex - 1] : undefined
+  const next = filteredIndex < children.length ? children[filteredIndex] : undefined
   const neighbors = [prev, next].flatMap((child) =>
     child ? [child] : [],
   )
@@ -226,31 +292,48 @@ function insertionMetrics(
   let linePos: number
   let bandStart: number
   let bandEnd: number
+  let highlight: Rect = parent.rect
 
   if (prev && next) {
+    // Middle gap: the slot needs one gap on each side (the frame keeps the
+    // dragged node in place, so the slot is the only layout mutation). When it
+    // does not fit, expand the parent and push successors by the same amount
+    // the flex layout will. The insertion line sits in the trailing gap, clear
+    // of the skeleton, marking the boundary against the next element.
     const gapStart = mainStart(prev)
     const gapEnd = mainEnd(next)
     const gap = gapEnd - gapStart
-    const boundary = (gapStart + gapEnd) / 2
-    const width = Math.max(
-      MIN_INSERTION_GAP,
-      Math.min(gap, slotSize),
-    )
-    linePos = boundary
-    bandStart = boundary - width / 2
-    bandEnd = boundary + width / 2
+    const needsPush = slotSize + LAYOUT_GAP * 2 > gap
+    bandStart = gapStart + LAYOUT_GAP
+    bandEnd = bandStart + slotSize
+    if (needsPush) {
+      const shift = slotSize + LAYOUT_GAP * 2 - gap
+      highlight = horizontal
+        ? { ...parent.rect, width: parent.rect.width + shift }
+        : { ...parent.rect, height: parent.rect.height + shift }
+    }
+    linePos = bandEnd + LAYOUT_GAP / 2
   } else if (prev) {
+    // After the last child: the container grows at its trailing edge.
     const gapStart = mainStart(prev)
-    const slotStart = gapStart + LAYOUT_GAP
-    linePos = slotStart
-    bandStart = slotStart
-    bandEnd = slotStart + slotSize
+    bandStart = gapStart + LAYOUT_GAP
+    bandEnd = bandStart + slotSize
+    // No follower to anchor the boundary against: mark the slot's leading edge,
+    // between the previous element and the skeleton.
+    linePos = bandStart - LAYOUT_GAP / 2
+    highlight = horizontal
+      ? { ...parent.rect, width: parent.rect.width + slotSize + LAYOUT_GAP }
+      : { ...parent.rect, height: parent.rect.height + slotSize + LAYOUT_GAP }
   } else if (next) {
-    const gapEnd = mainEnd(next)
-    const slotEnd = gapEnd - LAYOUT_GAP
-    linePos = slotEnd
-    bandStart = slotEnd - slotSize
-    bandEnd = slotEnd
+    // Before the first child: carve the slot out of the front and push the
+    // existing children back so nothing sticks out of the container edge.
+    const contentStart = mainEnd(next)
+    bandStart = contentStart
+    bandEnd = contentStart + slotSize
+    linePos = bandEnd + LAYOUT_GAP / 2
+    highlight = horizontal
+      ? { ...parent.rect, width: parent.rect.width + slotSize + LAYOUT_GAP }
+      : { ...parent.rect, height: parent.rect.height + slotSize + LAYOUT_GAP }
   } else {
     return undefined
   }
@@ -269,6 +352,7 @@ function insertionMetrics(
         width: bandEnd - bandStart,
         height: crossEnd - crossStart,
       },
+      highlight,
     }
   }
   return {
@@ -284,6 +368,7 @@ function insertionMetrics(
       width: crossEnd - crossStart,
       height: bandEnd - bandStart,
     },
+    highlight,
   }
 }
 
