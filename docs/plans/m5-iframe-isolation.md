@@ -38,7 +38,7 @@
 
 ```text
 M5
-├─ 用户界面或交互      ✓ 画布渲染迁入 iframe；视觉不变（投影语义），交互（overlay/拖拽）留在 Host
+├─ 用户界面或交互      ✓ 画布渲染迁入 iframe；视觉不变（投影语义），交互（overlay/拖拽）留在 Host；CanvasView 拆分（C1）
 ├─ 业务规则和状态      ✓ 无领域层改动；controller 仍是唯一可写 owner
 ├─ 前后端接口或消息协议 ✓ 新增 Host↔iframe postMessage 协议（文档投影 / 几何回报）
 ├─ 数据库/文件/缓存    ✗ 无
@@ -137,6 +137,20 @@ type FrameToHost =
 - **编辑**：双击由 Host 判定（几何命中）→ Host 设 editing 态 → iframe 投影渲染 InlineEditor（值经 Host 控制）。
 - **缩放/平移触发的重投影**：scale 或 pan 变化时，Host 下发新 viewport，iframe 重新按布局级缩放渲染并回报几何；overlay 跟随新 rect。缩放交互（wheel/按钮）仍由 Host 处理。
 
+### CanvasView 拆分（随本次一并完成）
+
+`CanvasView.tsx` 目前 578 行，远超 §3 审查线（TSX > 250 行触发职责审查），是 code review 中最严重遗留项（C1，标为 P0）。原计划"随 M5 一并拆分"，现正式纳入 M5 范围：
+
+- 拆分目标：让 `CanvasView` 只负责"装配"——组合 Toolbar、视口、Overlay、iframe 与事件接线，保留在 Host。
+- 拆分出独立模块（建议）：
+  - `canvas/viewport/`：视口变换逻辑与缩放/平移事件处理（现内联在 CanvasView 的 wheel/zoom/pan 处理，含 `normalizeWheelDelta`、`viewportCenter`、`handleZoomIn/Out/Reset`、`fitPageToViewport`）。
+  - `canvas/interaction/`：指针/键盘语义（`handlePointerDown/Move/Up/Cancel`、`handleKeyDown`、`captureGeometry`、`runAutoPan`）——纯逻辑，不依赖 JSX。
+  - `canvas/overlay/`：overlay 装配（SelectionOverlay/DragOverlay）抽为独立组件或 Hook。
+- 拆分时点：在 iframe 迁移中同步进行，避免对 578 行文件做两轮破坏性改造（先拆再加 iframe 会重复触碰同一区域）。
+- 验收：拆分后 `CanvasView.tsx` 显著低于 250 行审查线；现有交互（选择/拖拽/编辑/缩放/平移/auto-pan）行为不变；`drag-browser`/`edit-browser` 回归全过。
+
+> 注意：`CanvasView` 拆分是结构调整，须保证行为不变（refactor without behavior change），与 iframe 协议改造解耦验证。
+
 ## 数据、状态和接口契约
 
 - 文档/历史/选择：不变（Host controller）。
@@ -182,6 +196,10 @@ type FrameToHost =
 - 选择/拖拽/双击编辑在 iframe 投影上正常工作；拖拽几何用回报 rect；缩放后仍可正确命中。
 - 浏览器实测：复用 drag-browser/edit-browser 场景在 iframe 下通过；含缩放后（如 133%）拖拽落点正确。
 
+**I4b CanvasView 拆分**（C1，纳入 M5）
+- `CanvasView.tsx` 拆分后明显低于 250 行审查线；viewport 逻辑入 `canvas/viewport/`、指针/键盘语义入 `canvas/interaction/`、overlay 装配独立。
+- 行为不变（refactor without behavior change）：选择/拖拽/编辑/缩放/平移/auto-pan 与拆分前一致；与 iframe 协议改造解耦验证。
+
 **I5 回归门禁**
 - typecheck / lint / build 全绿；`core-smoke` 30、`dnd-smoke` 19、`text-smoke` 18；`drag-browser`、`edit-browser` 在 iframe 架构下复跑全过；**验证无第二个历史栈**（iframe 内无 controller 实例）。
 
@@ -192,6 +210,7 @@ type FrameToHost =
 - **I3** 样式作用域切分：节点样式/token 入 iframe，overlay/editor 样式留 Host。
 - **I3b** 布局级缩放实现：DocumentRuntime 投影应用 scale（world*scale + pan），替换 Host 的 transform scale；验证缩放清晰度。
 - **I4** 透明命中层 + 拖拽/编辑适配（captureGeometry 改用回报 rect）。
+- **I4b** CanvasView 拆分：viewport 逻辑、interaction 语义、overlay 装配独立；行为不变。
 - **I5** 回归全绿；计划 DONE。
 
 ## 发布与回滚
