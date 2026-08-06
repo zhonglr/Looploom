@@ -32,7 +32,8 @@
 - **跨帧投影**：Host→iframe 传递文档快照；iframe 渲染 + 回报节点几何。
 - **几何跨帧**：`registry` 现在持有 iframe 内 DOM 元素，overlay/拖拽的 `getBoundingClientRect` 需跨帧换算。
 - **样式隔离**：global.css 的 token 导入目前全局生效；iframe 内需独立 CSS 作用域。
-- **缩放文字模糊**：现状 `canvas-world` 用 `transform: translate() scale()`（`CanvasView.tsx:534`），对已栅格化的位图做重采样，非整数倍（如 125%、133%）时文字插值模糊。iframe 不会自动改善——若 iframe 仍被 `transform: scale()` 包裹，模糊依旧。改善必须在 iframe 内改用**布局级缩放**。
+- **缩放文字模糊**：现状 `canvas-world` 用 `transform: translate() scale()`（`CanvasView.tsx`），对已栅格化的位图做重采样，非整数倍（如 125%、133%）时文字插值模糊。iframe 不会自动改善——若 iframe 仍被 `transform: scale()` 包裹，模糊依旧。改善必须在 iframe 内改用**布局级缩放**。
+- **DocumentRuntime 与交互耦合**：`DocumentRuntime`（`runtime/DocumentRuntime.tsx`）现接受 `registry`、`draggingNodeId`、`editingNodeId`、`editingValueRef`、`onEditCommit/Cancel`，直接依赖 Host 的 ref 模式。投射进 iframe 前抽出**纯投影变体**（只吃 `document` + `draggingNodeId` + `editing` + 编辑回调），iframe 用它渲染，避免 iframe 依赖 Host 的 `registry`/`editingValueRef`。降透明用 `draggingNodeId` prop、编辑用受控 `editing` 回调 —— 与 Host 原先逻辑等价，仅把状态改为经 bridge 下发。
 
 ### 影响地图
 
@@ -63,15 +64,16 @@ M5
 
 **现状根因**：`transform: translate() scale()` 是对渲染结果（位图）做重采样。非整数倍缩放时，浏览器对文字做像素插值，必然模糊。这是 transform 缩放的通病，与 iframe 无关。
 
-**M5 方案**：iframe 内不再用 `transform: scale()`。缩放由**布局尺寸**承载：
+**现实约束（实施勘误）**：计划初稿假设节点带 world 坐标（`left = x*scale`）。实际 `DocumentRuntime` 是**纯 flex 流式布局**（`canvas-node-container` 用 flex，节点无 x/y 坐标），无法直接按 world 坐标定位。因此"布局级缩放"落地为对**页面容器**施加 `zoom: scale`：浏览器按缩放后的实际像素 reflow 整棵节点树（字体按目标尺寸重新栅格化/重新 hint，非整数倍也清晰），同时 `zoom` 会同步缩放容器与子节点的布局尺寸，等效于"按更大尺寸重画"。
+
 - Host 通过协议下发 `{ scale, panX, panY }`；
-- iframe 内世界坐标系渲染时，直接把 world 坐标乘以 scale（`left = x*scale`, `width = w*scale`，字体按 `fontSize*scale`），即**按缩放后的实际像素 reflow 布局**；
-- 浏览器对文字按目标尺寸重新栅格化（矢量重新 hint），非整数倍也清晰；
-- 平移仍用 `transform: translate()`（平移不改变栅格尺寸，不产生模糊）。
+- iframe 内 `.canvas-frame-page` 应用 `zoom: scale`，页面定位用 `translate(panX, panY)`（平移不改变栅格尺寸，不产生模糊）；
+- 子节点尺寸（宽高、字体、gap、padding）随 zoom 按比例 reflow，`getBoundingClientRect` 天然返回已缩放的屏幕坐标；
+- 相比在 Host 保留 `transform: scale()`，`zoom` 不做位图重采样，文字保持清晰；这是 iframe 隔离带来的真实收益之一。
 
-**效果**：缩放从"放大已画好的图"变为"按更大尺寸重画"，文字保持清晰。这也是 iframe 隔离带来的真实收益之一。
+> 备选：逐属性 `calc()`（font-size * scale / gap * scale）也能实现 reflow，但需改写全部节点样式且易漏；`zoom` 一次覆盖整棵页面树，是当前 flex 布局下的最小实现。`zoom` 已 Baseline（Chrome/Safari/Edge 原生，Firefox 126+）。
 
-**坐标流**：world（文档坐标）→ `worldToScreen`（*scale + pan）→ iframe 布局像素；overlay 直接用回报的 viewport-relative rect。
+**坐标流**：world（文档坐标）→ `screenToWorld`/`worldToScreen` 仍在 Host 用于指针换算；iframe 返回的屏幕 rect → Host `rectToWorld` 转世界坐标缓存 → overlay/落点消费。
 
 ### 内容划分
 
@@ -88,27 +90,36 @@ M5
 
 ### 通信协议
 
+协议必须覆盖**文档投影、视口、几何回报、编辑、拖拽降透明**五类消息，否则 iframe 下的双击编辑与被拖节点降透明（`.canvas-node-dragging`）会断开。修订后：
+
 ```ts
 // Host → iframe
 type HostToFrame =
   | { type: 'document'; revision: number; document: CanvasDocument }
-  | { type: 'viewport'; transform: ViewportTransform }
+  | { type: 'viewport'; transform: ViewportTransform } // scale/pan，layout scale 用 zoom reflow
+  | { type: 'interaction'; draggingNodeId: CanvasNodeId | null; editing: { nodeId: CanvasNodeId; initialValue: string } | null }
+  // 编辑时值仍存 Host：可再加一条 { type:'editValue'; value: string }，用于外部同步（若需要）
 
 // iframe → Host
 type FrameToHost =
-  | { type: 'geometry'; revision: number; rects: Record<CanvasNodeId, Rect> } // viewport-relative
-  | { type: 'ready' }
+  | { type: 'ready' } // 帧加载完成，Host 重发当前文档+视口+交互
+  | { type: 'geometry'; revision: number; rects: Record<CanvasNodeId, Rect>; pageSize: { width: number; height: number } } // iframe-viewport 相对（screen 坐标，已含 zoom/pan）；pageSize 供 Host Fit 用
+  | { type: 'editCommit'; nodeId: CanvasNodeId; value: string } // textarea 内 Enter/失焦
+  | { type: 'editCancel'; nodeId: CanvasNodeId } // Escape
 ```
 
 - **文档投影**：`controller.subscribe` 已有；revision 变化时 postMessage 最新文档（结构化克隆，文档为纯数据，代价小）。
-- **视口下发**：scale/pan 变化时发送；iframe 用其做布局级缩放（world*scale + pan）。
-- **几何回报**：iframe 渲染完成后测量所有节点 rect（相对 iframe viewport，即已按 scale 换算后的屏幕坐标），postMessage 回报；配合 `ResizeObserver` 在布局变化时增量回报。Host 侧 overlay/拖拽直接用回报的 rect（替代现 `registry.getBoundingClientRect`）。
-- **ready 握手**：iframe 加载后回报 ready，Host 重发当前文档与视口，避免初始化竞态。
+- **视口下发**：scale/pan 变化时发送；iframe 用其做布局级缩放（见 §布局级缩放，用 `zoom` reflow 而非 transform scale）。
+- **状态下发**：`editing`/`draggingNodeId` 变化时发送；iframe 据此渲染 InlineEditor（受控，值经 Host）与被拖节点降透明。
+- **几何回报**：iframe 渲染完成后测量所有节点 rect（相对 iframe viewport，即已按 zoom/pan 换算后的屏幕坐标），postMessage 回报；配合 `ResizeObserver` 在布局变化时增量回报。Host 侧把回报的屏幕 rect **再 `rectToWorld` 转回世界坐标**缓存，overlay/拖拽消费（见 §几何跨帧换算）。
+- **编辑回报**：iframe 内 InlineEditor 的 Enter/失焦→`editCommit`、Escape→`editCancel`，由 bridge 递给 Host controller（`setText` / 退出编辑态）。
+- **ready 握手**：iframe 加载后回报 ready，Host 重发当前文档、视口与交互状态，避免初始化竞态。
 
 ### 几何跨帧换算
 
-- iframe 内节点以**布局级缩放**渲染：`left = worldX*scale + panX`、`width = worldW*scale`（含字体 `fontSize*scale`）。节点的 `getBoundingClientRect` 因此返回已含缩放与平移的屏幕坐标。
-- Host 侧 overlay 直接用回报的 rect 绘制（现 `SelectionOverlay`/`DragOverlay` 已用 viewport-relative 坐标，改动最小）。
+- iframe 内节点以**布局级缩放**渲染：页面容器应用 `zoom: scale`（reflow 布局，见 §布局级缩放），页面位置用 `translate(panX, panY)`。节点的 `getBoundingClientRect` 因此返回已含缩放与平移的**屏幕坐标**（相对 iframe 视口）。
+- **坐标空间约定（修正）**：`computeDropTarget`（`drop-target.ts`）当前输入几何快照为**世界坐标**。为保持该算法零改动（refactor without behavior change），Host 侧对 iframe 回报的屏幕 rect 统一执行 `rectToWorld(screenRect, viewport)` 再缓存；overlay 与拖拽命中继续在世界坐标上运行。§交互坐标一致性中"命中判定直接用屏幕 rect、无需 world 换算"仅适用于**指针命中测试**（用屏幕坐标与回报 rect 对比，供 hover/选择），落点推断仍走 world 几何。
+- Host 侧 overlay 绘制：`SelectionOverlay` 直接用回报的屏幕 rect（view-relative）；`DragOverlay` 的 `worldRectStyle`/`insertionStyle` 仍做 world→screen 换算（输入为世界几何快照）。
 - 拖拽几何快照：`captureGeometry` 改用最新回报 rect（不再直接读 iframe DOM）。
 - `worldToScreen`/`screenToWorld`（`viewport/viewport.ts`）继续由 Host 持有，用于指针坐标换算；iframe 侧只在渲染投影时应用 scale。
 
@@ -125,14 +136,15 @@ type FrameToHost =
 
 ### iframe 承载
 
-- 独立入口：`public/canvas-frame.html`（静态 HTML，含 `#root` + 挂载脚本入口）。
-- 或用 vite 多页入口（`canvas-frame.html` + `canvasFrame.tsx`），`import` 同一份 `DocumentRuntime` 与 tokens。选 **vite 多页入口**（复用构建管线、类型与 HMR）。
+- 独立入口：在**应用根**新增 `canvas-frame.html`（MPA 第二入口，非 `public/` —— `public/` 是纯静态目录，不经过 vite 构建/编译，无法挂载 TSX 入口）。内容：`#root` + `<script type="module" src="/src/canvas/frame/canvasFrame.tsx" />`。
+- `vite.config.ts` 增加 `build.rollupOptions.input`（`{ main: 'canvas-frame.html', frame: 'canvas-frame.html' }`），复用构建管线、类型与 HMR。
+- `canvasFrame.tsx`：独立 React 根，`import` 同一份 `DocumentRuntime`（投影变体）与 tokens，挂载到 `#root`。
 - Host `CanvasView` 渲染 `<iframe src="/canvas-frame.html" />`，100% 填充，`sandbox` 允许 `allow-scripts` + `allow-same-origin`（同源仍需 same-origin 才能读 DOM）。
 
 ### 拖拽/编辑在 iframe 下的行为
 
 - **拖拽**：iframe 内 DocumentRuntime 的节点元素对 Host 不可直接 pointer 命中（跨 frame 事件）。方案：Host 在 iframe 上层放透明捕获层（overlay）做命中。
-  - 选**透明命中层**：Host 的 canvas-viewport 上保留一个覆盖 iframe 的透明 div（`pointer-events: auto` 仅在需要时，如拖拽/选择），把 pointer 坐标换算后命中几何快照（不依赖 iframe DOM）。双击编辑同理：Host 依据回报几何定位节点，进入编辑态后 iframe 渲染 textarea 编辑控件（受控，值仍存 Host 侧）。
+  - 选**透明命中层**：Host 的 canvas-viewport 上保留一个覆盖 iframe 的透明 div（`pointer-events: auto` 仅在需要时，如拖拽/选择），把 pointer 坐标换算后命中几何快照（不依赖 iframe DOM）。双击编辑同理：Host 依据回报几何定位节点，进入编辑态后经协议下发 `editing`，iframe 渲染 textarea 编辑控件（受控，值存 Host，Enter/失焦回报 `editCommit`、Escape 回报 `editCancel`）。
   - 备选（iframe 事件转发）：更接近"组件真实交互"，但需协议化 pointer 事件流，复杂度高。本轮选透明命中层，把 iframe 当"画布表面"。
 - **编辑**：双击由 Host 判定（几何命中）→ Host 设 editing 态 → iframe 投影渲染 InlineEditor（值经 Host 控制）。
 - **缩放/平移触发的重投影**：scale 或 pan 变化时，Host 下发新 viewport，iframe 重新按布局级缩放渲染并回报几何；overlay 跟随新 rect。缩放交互（wheel/按钮）仍由 Host 处理。
@@ -226,7 +238,9 @@ type FrameToHost =
 | 跨帧交互方式 | Host 透明命中层（非 iframe 事件转发） | 避免协议化 pointer 流，复杂度可控；本轮样式隔离为主 |
 | iframe 承载 | vite 多页入口 | 复用构建/HMR/类型 |
 | 样式隔离 | 节点样式与 tokens 入 iframe 作用域 | 达成 §11 overlay 独立性 |
-| 缩放实现 | iframe 内布局级缩放（world*scale + pan） | 替代 transform scale 位图重采样，非整数倍文字清晰 |
+| 缩放实现 | iframe 内页面容器 `zoom: scale`（reflow，非 transform） | 节点为 flex 流式布局无 world 坐标；`zoom` 一次性按目标尺寸重排整棵页面树，文字非整数倍清晰 |
+| 落点几何坐标空间 | Host 将回报屏幕 rect `rectToWorld` 转世界坐标缓存 | `computeDropTarget` 算法零改动（行为不变） |
+| 编辑控件渲染位置 | iframe 内渲染 InlineEditor（受控，值存 Host） | 满足 §内容划分；Enter/失焦→`editCommit`、Escape→`editCancel` 经 bridge |
 
 未决问题：
 - 透明命中层在 iframe 上叠加时，用户组件的真实交互（表单、链接）本轮不启用（无 Preview 模式）；Preview 切换留后续。
