@@ -1,0 +1,186 @@
+.editor-shell-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.editor-shell-root .flexlayout__layout {
+  --color-text: var(--spectrum-neutral-content-color-default);
+  --color-background: var(--spectrum-background-base-color);
+  --color-base: var(--spectrum-background-layer-1-color);
+  --color-1: var(--spectrum-gray-50);
+  --color-2: var(--spectrum-gray-100);
+  --color-3: var(--spectrum-gray-100);
+  --color-4: var(--spectrum-gray-400);
+  --color-5: var(--spectrum-gray-600);
+  --color-6: var(--spectrum-gray-700);
+  --color-drag1: var(--spectrum-accent-content-color-default);
+  --color-drag2: var(--spectrum-accent-content-color-default);
+  --color-drag1-background: color-mix(
+    in srgb,
+    var(--spectrum-accent-content-color-default) 16%,
+    transparent
+  );
+  --color-drag2-background: color-mix(
+    in srgb,
+    var(--spectrum-accent-content-color-default) 24%,
+    transparent
+  );
+  --color-focus: var(--spectrum-accent-content-color-default);
+  --color-icon: var(--spectrum-neutral-subdued-content-color-default);
+  --color-overflow: var(--spectrum-neutral-subdued-content-color-default);
+  --font-size: var(--spectrum-font-size-100);
+  --font-family: var(--spectrum-sans-font-family-stack);
+  --splitter-size: var(--spectrum-spacing-75);
+  inset: 0;
+}
+
+.editor-shell-root .flexlayout__tabset {
+  border: 0;
+  background: var(--spectrum-background-layer-1-color);
+}
+
+.editor-shell-root .flexlayout__tabset_tabbar_outer {
+  border-bottom: var(--spectrum-border-width-100) solid
+    var(--spectrum-gray-400);
+  background: var(--spectrum-background-base-color);
+}
+
+.editor-shell-root .flexlayout__tabset_tabbar_inner_tab_container {
+  height: var(--spectrum-spacing-500);
+}
+
+.editor-shell-root .flexlayout__tab_button {
+  height: var(--spectrum-spacing-500);
+  gap: var(--spectrum-spacing-75);
+  padding: 0 var(--spectrum-spacing-100);
+  border-right: var(--spectrum-border-width-100) solid
+    var(--spectrum-gray-400);
+  border-radius: 0;
+  color: var(--spectrum-neutral-subdued-content-color-default);
+  background: transparent;
+  transition:
+    color var(--spectrum-animation-duration-100),
+    background var(--spectrum-animation-duration-100);
+}
+
+.editor-shell-root .flexlayout__tab_button:hover {
+  color: var(--spectrum-neutral-content-color-hover);
+  background: var(--spectrum-gray-100);
+}
+
+.editor-shell-root .flexlayout__tab_button--selected {
+  color: var(--spectrum-neutral-content-color-default);
+  background: var(--spectrum-background-layer-1-color);
+}
+
+.editor-shell-root .flexlayout__tab_button--selected::after {
+  content: '';
+  position: absolute;
+  right: var(--spectrum-spacing-100);
+  bottom: 0;
+  left: var(--spectrum-spacing-100);
+  height: var(--spectrum-border-width-200);
+  background: var(--spectrum-accent-content-color-default);
+}
+
+.editor-shell-root .flexlayout__tab_button_content {
+  font-size: var(--spectrum-font-size-100);
+  line-height: var(--spectrum-line-height-100);
+}
+
+.editor-shell__tab-label {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+}
+
+.editor-shell-root .flexlayout__tab_toolbar {
+  height: var(--spectrum-spacing-500);
+  padding: 0 var(--spectrum-spacing-75);
+  gap: var(--spectrum-spacing-50);
+  background: var(--spectrum-background-base-color);
+}
+
+.editor-shell-root .flexlayout__tab_toolbar_button {
+  width: var(--spectrum-spacing-400);
+  height: var(--spectrum-spacing-400);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: var(--spectrum-corner-radius-75);
+  color: var(--spectrum-neutral-subdued-content-color-default);
+}
+
+.editor-shell-root .flexlayout__tab_toolbar_button:hover {
+  color: var(--spectrum-neutral-content-color-hover);
+  background: var(--spectrum-gray-100);
+}
+
+.editor-shell-root .flexlayout__splitter {
+  background: var(--spectrum-background-base-color);
+}
+
+.editor-shell-root .flexlayout__splitter:hover,
+.editor-shell-root .flexlayout__splitter_drag {
+  background: var(--spectrum-accent-content-color-default);
+}
+
+.editor-shell-root .flexlayout__drag_rect {
+  border: var(--spectrum-border-width-100) solid
+    var(--spectrum-accent-content-color-hover);
+  border-radius: var(--spectrum-corner-radius-small-default);
+  background: color-mix(
+    in srgb,
+    var(--spectrum-accent-content-color-default) 36%,
+    transparent
+  );
+  box-shadow: inset 0 0 var(--spectrum-spacing-300)
+    color-mix(
+      in srgb,
+      var(--spectrum-accent-content-color-default) 14%,
+      transparent
+    );
+}
+
+.editor-shell-root .flexlayout__float_window {
+  overflow: hidden;
+  border: var(--spectrum-border-width-100) solid var(--spectrum-gray-400);
+  border-radius: var(--spectrum-corner-radius-medium-default);
+  background: var(--spectrum-background-layer-1-color);
+  box-shadow:
+    0 var(--spectrum-spacing-75) var(--spectrum-spacing-200)
+      var(--spectrum-drop-shadow-elevated-color),
+    0 var(--spectrum-spacing-400) var(--spectrum-spacing-500)
+      var(--spectrum-drop-shadow-color-300);
+}
+
+.editor-shell-root .flexlayout__float_window_header {
+  min-height: var(--spectrum-spacing-400);
+  padding: 0 var(--spectrum-spacing-75);
+  display: flex;
+  align-items: center;
+  border-bottom: var(--spectrum-border-width-100) solid
+    var(--spectrum-gray-400);
+  color: var(--spectrum-neutral-content-color-default);
+  background: var(--spectrum-background-base-color);
+  font-size: var(--spectrum-font-size-100);
+  line-height: var(--spectrum-line-height-100);
+  cursor: move;
+}
+
+.editor-shell-root .flexlayout__float_window_content,
+.editor-shell-root .flexlayout__tab {
+  overflow: hidden;
+  background: var(--spectrum-background-layer-1-color);
+}
+
+body.flexlayout__window,
+body.flexlayout__window #root {
+  min-width: 0;
+  min-height: 0;
+  background: var(--spectrum-background-base-color);
+}
