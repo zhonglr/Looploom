@@ -14,6 +14,16 @@ export interface DragState {
   drop: DropTarget | null
 }
 
+export type SettleState =
+  | {
+      kind: 'placed'
+      target: Extract<DropTarget, { status: 'valid' }>
+      ghostX: number
+      ghostY: number
+    }
+  | { kind: 'rejected'; message: string }
+  | null
+
 export const IDLE_DRAG_STATE: DragState = {
   status: 'idle',
   nodeId: null,
