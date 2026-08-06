@@ -9,7 +9,7 @@ import { isContainerNode } from './core/canvas-node'
 import { getNode, getParent } from './core/document'
 import { useCanvasEditorController, useCanvasEditorSnapshot } from './editor/context'
 import { SelectionOverlay } from './overlay/SelectionOverlay'
-import { DragOverlay } from './overlay/DragOverlay'
+import { DragOverlay, type SettleState } from './overlay/DragOverlay'
 import { DocumentRuntime, type NodeElementRegistry } from './runtime/DocumentRuntime'
 import { DragController, IDLE_DRAG_STATE } from './dnd/drag-controller'
 import { computeDropTarget } from './dnd/drop-target'
@@ -81,7 +81,7 @@ export function CanvasView() {
     })
   }
   const [dragState, setDragState] = useState(IDLE_DRAG_STATE)
-  const [settle, setSettle] = useState<{ kind: 'placed' | 'rejected'; message?: string } | null>(null)
+  const [settle, setSettle] = useState<SettleState>(null)
   const dragNodeId = dragState.nodeId
   const draggingNodeId = dragState.status !== 'idle' ? dragNodeId : null
   const [geometry, setGeometry] = useState<NodeGeometrySnapshot>(new Map())
@@ -336,19 +336,14 @@ export function CanvasView() {
     stopAutoPan()
     const state = dragRef.current!.getState()
     if (state.status !== 'idle') {
-      const lastDrop =
-        state.drop?.status === 'valid'
-          ? { valid: true }
-          : {
-              valid: false,
-              message:
-                state.drop?.status === 'rejected' ? state.drop.reason : undefined,
-            }
+      const lastDrop = state.drop
+      const ghostX = state.ghostX
+      const ghostY = state.ghostY
       dragRef.current!.drop()
-      if (lastDrop.valid) {
-        setSettle({ kind: 'placed' })
-      } else if (lastDrop.message) {
-        setSettle({ kind: 'rejected', message: lastDrop.message })
+      if (lastDrop?.status === 'valid') {
+        setSettle({ kind: 'placed', target: lastDrop, ghostX, ghostY })
+      } else if (lastDrop?.status === 'rejected') {
+        setSettle({ kind: 'rejected', message: lastDrop.reason })
       }
       if (settleTimerRef.current !== null) {
         window.clearTimeout(settleTimerRef.current)

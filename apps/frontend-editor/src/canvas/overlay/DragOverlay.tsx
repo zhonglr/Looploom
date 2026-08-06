@@ -1,11 +1,26 @@
 import type { RefObject } from 'react'
 import type { CanvasNode, CanvasNodeId } from '../core/canvas-node'
 import type { DragState } from '../dnd/drag-controller'
+import type { DropTarget } from '../dnd/drop-target'
 import type { NodeGeometrySnapshot, Rect } from '../dnd/geometry'
 import type { ViewportTransform } from '../viewport/viewport'
 import { NodeContent } from '../runtime/DocumentRuntime'
 
 const DRAG_GHOST_OFFSET = 12
+const REJECTED_MESSAGE_GAP = 10
+const MIN_INSERTION_GAP = 12
+const MAX_INSERTION_GAP = 96
+const LAYOUT_GAP = 8
+
+export type SettleState =
+  | {
+      kind: 'placed'
+      target: Extract<DropTarget, { status: 'valid' }>
+      ghostX: number
+      ghostY: number
+    }
+  | { kind: 'rejected'; message: string }
+  | null
 
 export interface DragOverlayProps {
   drag: DragState
@@ -13,7 +28,7 @@ export interface DragOverlayProps {
   draggedNode: CanvasNode | undefined
   viewportRef: RefObject<HTMLDivElement | null>
   viewport: ViewportTransform
-  settle: { kind: 'placed' | 'rejected' } | null
+  settle: SettleState
 }
 
 export function DragOverlay({
@@ -24,23 +39,31 @@ export function DragOverlay({
   viewport,
   settle,
 }: DragOverlayProps) {
-  if (drag.status !== 'dragging') return null
+  if (drag.status !== 'dragging' && settle === null) return null
 
+  const settling = settle !== null
   const viewportElement = viewportRef.current
   const viewportRect = viewportElement?.getBoundingClientRect()
 
-  const target = drag.drop
-  const valid = target && target.status === 'valid' ? target : null
-  const rejected = target && target.status === 'rejected' ? target : null
+  const target =
+    drag.drop?.status === 'valid'
+      ? drag.drop
+      : settle?.kind === 'placed'
+        ? settle.target
+        : null
+  const valid = target
+  const rejected = drag.drop?.status === 'rejected' ? drag.drop : null
 
-  const highlightId =
-    valid && valid.placement === 'inside' ? valid.parentId : null
-  const insertionRect = valid
-    ? insertionLineRect(valid.parentId, valid.index, geometry)
+  const highlightId = valid ? valid.parentId : null
+  const draggedRectId = drag.nodeId ?? draggedNode?.id
+  const draggedRect = draggedRectId
+    ? geometry.get(draggedRectId)?.rect
     : undefined
-  const insertionBand = valid
-    ? insertionBandRect(valid.parentId, valid.index, geometry)
+  const insertion = valid
+    ? insertionMetrics(valid.parentId, valid.index, geometry, draggedRect)
     : undefined
+  const insertionRect = insertion?.line
+  const insertionBand = insertion?.band
   const highlightRect = highlightId
     ? geometry.get(highlightId)?.rect
     : undefined
@@ -52,9 +75,17 @@ export function DragOverlay({
       }
     : { x: drag.ghostX, y: drag.ghostY }
 
-  const ghostOffset =
-    draggedNode && geometry.has(draggedNode.id) && viewportRect
+  const settlingGhost =
+    settle?.kind === 'placed' && viewportRect
       ? {
+          x: settle.ghostX - viewportRect.left + DRAG_GHOST_OFFSET,
+          y: settle.ghostY - viewportRect.top + DRAG_GHOST_OFFSET,
+        }
+      : undefined
+
+  const ghostOffset =
+    draggedNode && viewportRect && (drag.status === 'dragging' || settlingGhost)
+      ? settlingGhost ?? {
           x: pointerInLayer.x + DRAG_GHOST_OFFSET,
           y: pointerInLayer.y + DRAG_GHOST_OFFSET,
         }
@@ -65,7 +96,13 @@ export function DragOverlay({
     : null
 
   return (
-    <div className="canvas-drag-layer" aria-hidden="true">
+    <div
+      className={[
+        'canvas-drag-layer',
+        settling ? 'canvas-drag-layer-settling' : '',
+      ].filter(Boolean).join(' ')}
+      aria-hidden="true"
+    >
       {highlightRect && viewportRect && (
         <div
           className={[
@@ -100,8 +137,17 @@ export function DragOverlay({
       )}
       {rejectedMessage && (
         <div
-          className="canvas-drop-rejected"
-          style={{ left: pointerInLayer.x, top: pointerInLayer.y }}
+          className={[
+            'canvas-drop-rejected',
+            pointerInLayer.y < 80 ? 'canvas-drop-rejected-below' : '',
+          ].filter(Boolean).join(' ')}
+          style={{
+            left: pointerInLayer.x,
+            top:
+              pointerInLayer.y < 80
+                ? pointerInLayer.y + REJECTED_MESSAGE_GAP
+                : pointerInLayer.y - REJECTED_MESSAGE_GAP,
+          }}
         >
           {rejectedMessage}
         </div>
@@ -123,38 +169,12 @@ function rejectMessage(reason: string): string {
   }
 }
 
-function insertionLineRect(
+function insertionMetrics(
   parentId: CanvasNodeId,
   index: number,
   geometry: NodeGeometrySnapshot,
-): Rect {
-  const parent = geometry.get(parentId)
-  if (!parent) return { x: 0, y: 0, width: 0, height: 0 }
-  const band = insertionBandRect(parentId, index, geometry)
-  if (!band) return { x: 0, y: 0, width: 0, height: 0 }
-  if (parent.layout === 'row') {
-    return {
-      x: band.x + band.width / 2,
-      y: band.y,
-      width: 0,
-      height: band.height,
-    }
-  }
-  return {
-    x: band.x,
-    y: band.y + band.height / 2,
-    width: band.width,
-    height: 0,
-  }
-}
-
-const MIN_INSERTION_GAP = 12
-
-function insertionBandRect(
-  parentId: CanvasNodeId,
-  index: number,
-  geometry: NodeGeometrySnapshot,
-): Rect | undefined {
+  draggedRect: Rect | undefined,
+): { line: Rect; band: Rect } | undefined {
   const parent = geometry.get(parentId)
   if (!parent) return undefined
   const horizontal = parent.layout === 'row'
@@ -168,6 +188,7 @@ function insertionBandRect(
   const neighbors = [prev, next].flatMap((child) =>
     child ? [child] : [],
   )
+
   const crossStart = Math.min(
     ...neighbors.map((child) =>
       horizontal ? child.rect.y : child.rect.x,
@@ -180,45 +201,89 @@ function insertionBandRect(
         : child.rect.x + child.rect.width,
     ),
   )
+  const neighborMainSize = Math.max(
+    ...neighbors.map((child) =>
+      horizontal ? child.rect.width : child.rect.height,
+    ),
+  )
+  const fallbackSlotSize = Math.max(
+    MIN_INSERTION_GAP,
+    Math.min(MAX_INSERTION_GAP, neighborMainSize),
+  )
+  const slotSize = draggedRect
+    ? horizontal
+      ? draggedRect.width
+      : draggedRect.height
+    : fallbackSlotSize
+
+  const mainStart = (child: NonNullable<typeof prev>) =>
+    horizontal
+      ? child.rect.x + child.rect.width
+      : child.rect.y + child.rect.height
+  const mainEnd = (child: NonNullable<typeof prev>) =>
+    horizontal ? child.rect.x : child.rect.y
+
+  let linePos: number
+  let bandStart: number
+  let bandEnd: number
+
+  if (prev && next) {
+    const gapStart = mainStart(prev)
+    const gapEnd = mainEnd(next)
+    const gap = gapEnd - gapStart
+    const boundary = (gapStart + gapEnd) / 2
+    const width = Math.max(
+      MIN_INSERTION_GAP,
+      Math.min(gap, slotSize),
+    )
+    linePos = boundary
+    bandStart = boundary - width / 2
+    bandEnd = boundary + width / 2
+  } else if (prev) {
+    const gapStart = mainStart(prev)
+    const slotStart = gapStart + LAYOUT_GAP
+    linePos = slotStart
+    bandStart = slotStart
+    bandEnd = slotStart + slotSize
+  } else if (next) {
+    const gapEnd = mainEnd(next)
+    const slotEnd = gapEnd - LAYOUT_GAP
+    linePos = slotEnd
+    bandStart = slotEnd - slotSize
+    bandEnd = slotEnd
+  } else {
+    return undefined
+  }
 
   if (horizontal) {
-    let left = prev ? prev.rect.x + prev.rect.width : parent.rect.x
-    let right = next ? next.rect.x : parent.rect.x + parent.rect.width
-    const gap = right - left
-    if (gap < MIN_INSERTION_GAP) {
-      const center = (left + right) / 2
-      left = Math.max(parent.rect.x, center - MIN_INSERTION_GAP / 2)
-      right = Math.min(
-        parent.rect.x + parent.rect.width,
-        center + MIN_INSERTION_GAP / 2,
-      )
-    }
-    if (right - left <= 0) return undefined
     return {
-      x: left,
-      y: crossStart,
-      width: right - left,
-      height: crossEnd - crossStart,
+      line: {
+        x: linePos,
+        y: crossStart,
+        width: 0,
+        height: crossEnd - crossStart,
+      },
+      band: {
+        x: bandStart,
+        y: crossStart,
+        width: bandEnd - bandStart,
+        height: crossEnd - crossStart,
+      },
     }
   }
-
-  let top = prev ? prev.rect.y + prev.rect.height : parent.rect.y
-  let bottom = next ? next.rect.y : parent.rect.y + parent.rect.height
-  const gap = bottom - top
-  if (gap < MIN_INSERTION_GAP) {
-    const center = (top + bottom) / 2
-    top = Math.max(parent.rect.y, center - MIN_INSERTION_GAP / 2)
-    bottom = Math.min(
-      parent.rect.y + parent.rect.height,
-      center + MIN_INSERTION_GAP / 2,
-    )
-  }
-  if (bottom - top <= 0) return undefined
   return {
-    x: crossStart,
-    y: top,
-    width: crossEnd - crossStart,
-    height: bottom - top,
+    line: {
+      x: crossStart,
+      y: linePos,
+      width: crossEnd - crossStart,
+      height: 0,
+    },
+    band: {
+      x: crossStart,
+      y: bandStart,
+      width: crossEnd - crossStart,
+      height: bandEnd - bandStart,
+    },
   }
 }
 
