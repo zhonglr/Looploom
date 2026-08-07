@@ -1,16 +1,91 @@
-import type { RefObject } from 'react'
-import type { CanvasNode, CanvasNodeId } from '../core/canvas-node'
+import { useEffect, useRef, useState } from 'react'
+import type { ReactNode, RefObject } from 'react'
+import type { CanvasNode } from '../core/canvas-node'
 import type { DragState, SettleState } from '../dnd/drag-controller'
-import type { NodeGeometrySnapshot, Rect } from '../dnd/geometry'
+import type { NodeGeometrySnapshot } from '../dnd/geometry'
 import type { FramePreviewSlot } from '../frame/bridge'
 import type { ViewportTransform } from '../viewport/viewport'
 import { NodeContent } from '../runtime/DocumentRuntime'
+import {
+  computeInsertionMetrics,
+  insertionStyle,
+  worldRectStyle,
+} from './overlay-geometry'
 
 const DRAG_GHOST_OFFSET = 12
 const REJECTED_MESSAGE_GAP = 10
-export const MIN_INSERTION_GAP = 12
-export const MAX_INSERTION_GAP = 96
-export const LAYOUT_GAP = 8
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t
+}
+
+function SmoothGhost({
+  targetX,
+  targetY,
+  initialX,
+  initialY,
+  children,
+}: {
+  targetX: number
+  targetY: number
+  initialX?: number
+  initialY?: number
+  children: ReactNode
+}) {
+  const [pos, setPos] = useState({
+    x: initialX ?? targetX,
+    y: initialY ?? targetY,
+  })
+  const posRef = useRef({ x: initialX ?? targetX, y: initialY ?? targetY })
+  const targetRef = useRef({ x: targetX, y: targetY })
+  const startedRef = useRef(false)
+  const rafRef = useRef<number | null>(null)
+
+  targetRef.current = { x: targetX, y: targetY }
+
+  useEffect(() => {
+    posRef.current = { x: pos.x, y: pos.y }
+  }, [pos])
+
+  useEffect(() => {
+    if (!startedRef.current && initialX !== undefined && initialY !== undefined) {
+      startedRef.current = true
+    }
+    const animate = () => {
+      const current = posRef.current
+      const target = targetRef.current
+      const dx = target.x - current.x
+      const dy = target.y - current.y
+      const dist = Math.hypot(dx, dy)
+      if (dist < 0.5) {
+        setPos({ x: target.x, y: target.y })
+        rafRef.current = null
+        return
+      }
+      const t = Math.min(1, 0.18)
+      const next = { x: lerp(current.x, target.x, t), y: lerp(current.y, target.y, t) }
+      posRef.current = next
+      setPos(next)
+      rafRef.current = requestAnimationFrame(animate)
+    }
+    rafRef.current = requestAnimationFrame(animate)
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
+      }
+    }
+  }, [targetX, targetY, initialX, initialY])
+
+  return (
+    <div
+      className="canvas-drag-ghost"
+      style={{ left: pos.x, top: pos.y }}
+    >
+      {children}
+    </div>
+  )
+}
 
 export interface DragOverlayProps {
   drag: DragState
@@ -57,12 +132,12 @@ export function DragOverlay({
       ? livePreview.rect
       : undefined
   const insertion = valid
-    ? insertionMetrics(
+    ? computeInsertionMetrics(
         valid.parentId,
         valid.index,
         geometry,
         draggedRect,
-        draggedRectId,
+        draggedRectId ?? null,
         liveSlot,
         livePreview?.prevRect ?? null,
         livePreview?.parentRect ?? undefined,
@@ -133,14 +208,32 @@ export function DragOverlay({
           style={insertionStyle(insertionRect, viewport)}
         />
       )}
-      {ghostOffset && draggedNode && (
-        <div
-          className="canvas-drag-ghost"
-          style={{ left: ghostOffset.x, top: ghostOffset.y }}
-        >
-          <NodeContent node={draggedNode} />
-        </div>
-      )}
+      {ghostOffset && draggedNode && (() => {
+        if (drag.status === 'dragging' && drag.originScreen && viewportRect) {
+          const originInLayer = {
+            x: drag.originScreen.x - viewportRect.left + DRAG_GHOST_OFFSET,
+            y: drag.originScreen.y - viewportRect.top + DRAG_GHOST_OFFSET,
+          }
+          return (
+            <SmoothGhost
+              targetX={ghostOffset.x}
+              targetY={ghostOffset.y}
+              initialX={originInLayer.x}
+              initialY={originInLayer.y}
+            >
+              <NodeContent node={draggedNode} />
+            </SmoothGhost>
+          )
+        }
+        return (
+          <div
+            className="canvas-drag-ghost"
+            style={{ left: ghostOffset.x, top: ghostOffset.y }}
+          >
+            <NodeContent node={draggedNode} />
+          </div>
+        )
+      })()}
       {rejectedMessage && (
         <div
           className={[
@@ -175,229 +268,3 @@ function rejectMessage(reason: string): string {
   }
 }
 
-function insertionMetrics(
-  parentId: CanvasNodeId,
-  index: number,
-  geometry: NodeGeometrySnapshot,
-  draggedRect: Rect | undefined,
-  draggedId?: CanvasNodeId | null,
-  liveSlot?: Rect,
-  livePrevRect?: Rect | null,
-  liveParentRect?: Rect,
-): {
-  line: Rect
-  band: Rect
-  highlight: Rect
-} | undefined {
-  const parent = geometry.get(parentId)
-  if (!parent) return undefined
-  const horizontal = parent.layout === 'row'
-
-  // Neighbours are computed from the filtered list (dragged node removed) so
-  // the visual slot is where the node will land after removal.
-  const allChildren = parent.childIds
-    .map((id) => geometry.get(id))
-    .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined)
-  const children = allChildren.filter((entry) => entry.id !== draggedId)
-  const ownIndex = draggedId ? allChildren.findIndex((e) => e.id === draggedId) : -1
-  const adjustedIndex = ownIndex !== -1 && index > ownIndex ? index - 1 : index
-  const filteredIndex = Math.max(0, Math.min(adjustedIndex, children.length))
-
-  // A live slot is reported by the frame with the real layout sizes at the
-  // target position (the dragged node re-rendered inside the target container),
-  // so the overlay band tracks the exact slot the frame is showing and the
-  // highlight follows the parent as it grows to fit the slot. The insertion
-  // line sits in the gap on the leading side of the slot, clear of the
-  // skeleton; for a before-first insertion it marks the trailing boundary.
-  if (liveSlot) {
-    const prevEnd = livePrevRect
-      ? horizontal
-        ? livePrevRect.x + livePrevRect.width
-        : livePrevRect.y + livePrevRect.height
-      : undefined
-    const leading = horizontal ? liveSlot.x : liveSlot.y
-    const trailing = horizontal
-      ? liveSlot.x + liveSlot.width
-      : liveSlot.y + liveSlot.height
-    const linePos = prevEnd !== undefined
-      ? prevEnd + (leading - prevEnd) / 2
-      : trailing + LAYOUT_GAP / 2
-    const line = horizontal
-      ? { x: linePos, y: liveSlot.y, width: 0, height: liveSlot.height }
-      : { x: liveSlot.x, y: linePos, width: liveSlot.width, height: 0 }
-    return { line, band: liveSlot, highlight: liveParentRect ?? parent.rect }
-  }
-
-  // For same-parent moves the geometry still contains the dragged rect; dropping
-  // to own position is already flagged noop upstream, so we never reach here for noop.
-  if (children.length === 0) {
-    const slot = draggedRect
-      ? horizontal ? draggedRect.width : draggedRect.height
-      : MAX_INSERTION_GAP
-    const slotClamped = Math.max(MIN_INSERTION_GAP, Math.min(slot, MAX_INSERTION_GAP))
-    // Empty container: carve a padded slot inside the parent so the overlay has
-    // a stable target, and expand the highlight similarly to edge cases.
-    const band: Rect = horizontal
-      ? { x: parent.rect.x + LAYOUT_GAP, y: parent.rect.y + LAYOUT_GAP, width: slotClamped, height: Math.max(24, parent.rect.height - LAYOUT_GAP * 2) }
-      : { x: parent.rect.x + LAYOUT_GAP, y: parent.rect.y + LAYOUT_GAP, width: Math.max(24, parent.rect.width - LAYOUT_GAP * 2), height: slotClamped }
-    const line: Rect = horizontal
-      ? { x: band.x + band.width, y: band.y, width: 0, height: band.height }
-      : { x: band.x, y: band.y + band.height, width: band.width, height: 0 }
-    const highlight: Rect = horizontal
-      ? { ...parent.rect, width: parent.rect.width + slotClamped + LAYOUT_GAP }
-      : { ...parent.rect, height: parent.rect.height + slotClamped + LAYOUT_GAP }
-    return { line, band, highlight }
-  }
-
-  const prev = filteredIndex > 0 ? children[filteredIndex - 1] : undefined
-  const next = filteredIndex < children.length ? children[filteredIndex] : undefined
-  const neighbors = [prev, next].flatMap((child) =>
-    child ? [child] : [],
-  )
-
-  const crossStart = Math.min(
-    ...neighbors.map((child) =>
-      horizontal ? child.rect.y : child.rect.x,
-    ),
-  )
-  const crossEnd = Math.max(
-    ...neighbors.map((child) =>
-      horizontal
-        ? child.rect.y + child.rect.height
-        : child.rect.x + child.rect.width,
-    ),
-  )
-  const neighborMainSize = Math.max(
-    ...neighbors.map((child) =>
-      horizontal ? child.rect.width : child.rect.height,
-    ),
-  )
-  const fallbackSlotSize = Math.max(
-    MIN_INSERTION_GAP,
-    Math.min(MAX_INSERTION_GAP, neighborMainSize),
-  )
-  const slotSize = draggedRect
-    ? horizontal
-      ? draggedRect.width
-      : draggedRect.height
-    : fallbackSlotSize
-
-  const mainStart = (child: NonNullable<typeof prev>) =>
-    horizontal
-      ? child.rect.x + child.rect.width
-      : child.rect.y + child.rect.height
-  const mainEnd = (child: NonNullable<typeof prev>) =>
-    horizontal ? child.rect.x : child.rect.y
-
-  let linePos: number
-  let bandStart: number
-  let bandEnd: number
-  let highlight: Rect = parent.rect
-
-  if (prev && next) {
-    // Middle gap: the slot needs one gap on each side (the frame keeps the
-    // dragged node in place, so the slot is the only layout mutation). When it
-    // does not fit, expand the parent and push successors by the same amount
-    // the flex layout will. The insertion line sits in the trailing gap, clear
-    // of the skeleton, marking the boundary against the next element.
-    const gapStart = mainStart(prev)
-    const gapEnd = mainEnd(next)
-    const gap = gapEnd - gapStart
-    const needsPush = slotSize + LAYOUT_GAP * 2 > gap
-    bandStart = gapStart + LAYOUT_GAP
-    bandEnd = bandStart + slotSize
-    if (needsPush) {
-      const shift = slotSize + LAYOUT_GAP * 2 - gap
-      highlight = horizontal
-        ? { ...parent.rect, width: parent.rect.width + shift }
-        : { ...parent.rect, height: parent.rect.height + shift }
-    }
-    linePos = bandEnd + LAYOUT_GAP / 2
-  } else if (prev) {
-    // After the last child: the container grows at its trailing edge.
-    const gapStart = mainStart(prev)
-    bandStart = gapStart + LAYOUT_GAP
-    bandEnd = bandStart + slotSize
-    // No follower to anchor the boundary against: mark the slot's leading edge,
-    // between the previous element and the skeleton.
-    linePos = bandStart - LAYOUT_GAP / 2
-    highlight = horizontal
-      ? { ...parent.rect, width: parent.rect.width + slotSize + LAYOUT_GAP }
-      : { ...parent.rect, height: parent.rect.height + slotSize + LAYOUT_GAP }
-  } else if (next) {
-    // Before the first child: carve the slot out of the front and push the
-    // existing children back so nothing sticks out of the container edge.
-    const contentStart = mainEnd(next)
-    bandStart = contentStart
-    bandEnd = contentStart + slotSize
-    linePos = bandEnd + LAYOUT_GAP / 2
-    highlight = horizontal
-      ? { ...parent.rect, width: parent.rect.width + slotSize + LAYOUT_GAP }
-      : { ...parent.rect, height: parent.rect.height + slotSize + LAYOUT_GAP }
-  } else {
-    return undefined
-  }
-
-  if (horizontal) {
-    return {
-      line: {
-        x: linePos,
-        y: crossStart,
-        width: 0,
-        height: crossEnd - crossStart,
-      },
-      band: {
-        x: bandStart,
-        y: crossStart,
-        width: bandEnd - bandStart,
-        height: crossEnd - crossStart,
-      },
-      highlight,
-    }
-  }
-  return {
-    line: {
-      x: crossStart,
-      y: linePos,
-      width: crossEnd - crossStart,
-      height: 0,
-    },
-    band: {
-      x: crossStart,
-      y: bandStart,
-      width: crossEnd - crossStart,
-      height: bandEnd - bandStart,
-    },
-    highlight,
-  }
-}
-
-function worldRectStyle(rect: Rect, viewport: ViewportTransform): Record<string, string> {
-  return {
-    left: `${rect.x * viewport.scale + viewport.panX}px`,
-    top: `${rect.y * viewport.scale + viewport.panY}px`,
-    width: `${rect.width * viewport.scale}px`,
-    height: `${rect.height * viewport.scale}px`,
-  }
-}
-
-function insertionStyle(
-  rect: Rect,
-  viewport: ViewportTransform,
-): Record<string, string> {
-  const horizontal = rect.width === 0
-  if (horizontal) {
-    return {
-      left: `${rect.x * viewport.scale + viewport.panX - 1}px`,
-      top: `${rect.y * viewport.scale + viewport.panY}px`,
-      width: '2px',
-      height: `${rect.height * viewport.scale}px`,
-    }
-  }
-  return {
-    left: `${rect.x * viewport.scale + viewport.panX}px`,
-    top: `${rect.y * viewport.scale + viewport.panY - 1}px`,
-    width: `${rect.width * viewport.scale}px`,
-    height: '2px',
-  }
-}

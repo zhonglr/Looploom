@@ -90,12 +90,18 @@ export function FrameRoot() {
     if (!page) return undefined
     const observer = new ResizeObserver(() => reportGeometry())
     observer.observe(page)
+    for (const element of registryRef.current.values()) {
+      observer.observe(element)
+    }
+    for (const element of previewRegistryRef.current.values()) {
+      observer.observe(element)
+    }
     return () => observer.disconnect()
-  }, [reportGeometry])
+  }, [reportGeometry, projection])
 
   return (
     <div className="canvas-frame-surface">
-      {document && (
+      {projection && (
         <div
           className="canvas-frame-stage"
           style={{ transform: `translate(${viewport.panX}px, ${viewport.panY}px)` }}

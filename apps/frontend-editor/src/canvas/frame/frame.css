@@ -107,6 +107,7 @@ body {
 
 .canvas-node-dragging {
   opacity: 0.35;
+  transition: opacity 200ms ease-out;
 }
 
 .canvas-node-displaced {

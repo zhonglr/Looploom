@@ -14,6 +14,7 @@ export interface DragState {
   ghostX: number
   ghostY: number
   drop: DropTarget | null
+  originScreen: Point | null
 }
 
 export type SettleState =
@@ -35,6 +36,7 @@ export const IDLE_DRAG_STATE: DragState = {
   ghostX: 0,
   ghostY: 0,
   drop: null,
+  originScreen: null,
 }
 
 export interface DragControllerOptions {
@@ -61,7 +63,7 @@ export class DragController {
     }
   }
 
-  start(nodeId: CanvasNodeId, startScreen: Point): void {
+  start(nodeId: CanvasNodeId, startScreen: Point, originScreen?: Point): void {
     if (this.state.status !== 'idle') return
     this.state = {
       status: 'pending',
@@ -72,6 +74,7 @@ export class DragController {
       ghostX: startScreen.x,
       ghostY: startScreen.y,
       drop: null,
+      originScreen: originScreen ?? startScreen,
     }
     this.emit()
   }

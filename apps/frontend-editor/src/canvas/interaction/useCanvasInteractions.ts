@@ -274,13 +274,27 @@ export function useCanvasInteractions({
       frameRectsRef.current,
       pointerInViewport(event),
     )
+    if (nodeId !== optionsRef.current.snapshot.selection) {
+      selectionRevisionRef.current += 1
+    }
     optionsRef.current.controller.select(nodeId)
     if (nodeId === null || nodeId === optionsRef.current.snapshot.document.root.id) return
     pointerSession.current!.capture(event.currentTarget, event.pointerId)
     const geometryMap = buildGeometry()
     geometryRef.current = geometryMap
     setGeometry(geometryMap)
-    dragRef.current!.start(nodeId, { x: event.clientX, y: event.clientY })
+    const nodeRect = geometryMap.get(nodeId)?.rect
+    const originScreen = nodeRect
+      ? {
+          x: nodeRect.x * viewportRef2.current.scale + viewportRef2.current.panX,
+          y: nodeRect.y * viewportRef2.current.scale + viewportRef2.current.panY,
+        }
+      : null
+    dragRef.current!.start(
+      nodeId,
+      { x: event.clientX, y: event.clientY },
+      originScreen ?? undefined,
+    )
   }
 
   const handleDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {

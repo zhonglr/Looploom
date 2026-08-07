@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import type { CanvasNode, CanvasNodeId } from '../core/canvas-node'
 import { nodeKindLabel } from '../core/canvas-node'
 import type { NodeGeometrySnapshot, Rect } from '../dnd/geometry'
@@ -34,8 +35,44 @@ export function SelectionOverlay({
       ? rectFor(geometry, viewport, hover)
       : undefined
 
+  const [hoverVisible, setHoverVisible] = useState(false)
+  const hoverHideTimer = useRef<number | null>(null)
+  const lastHoverRect = useRef<OverlayRect | undefined>(undefined)
+
+  if (hoverRect) {
+    lastHoverRect.current = hoverRect
+  }
+
+  useEffect(() => {
+    if (hoverRect) {
+      if (hoverHideTimer.current !== null) {
+        window.clearTimeout(hoverHideTimer.current)
+        hoverHideTimer.current = null
+      }
+      setHoverVisible(true)
+    } else {
+      hoverHideTimer.current = window.setTimeout(() => {
+        setHoverVisible(false)
+        hoverHideTimer.current = null
+      }, 120)
+    }
+    return () => {
+      if (hoverHideTimer.current !== null) {
+        window.clearTimeout(hoverHideTimer.current)
+        hoverHideTimer.current = null
+      }
+    }
+  }, [hoverRect])
+
   return (
     <div className="canvas-overlay" aria-hidden="true">
+      <div
+        className="canvas-overlay-box canvas-overlay-box-hover"
+        style={{
+          ...boxStyle(hoverRect ?? lastHoverRect.current ?? { left: 0, top: 0, width: 0, height: 0 }),
+          opacity: hoverVisible && hoverRect ? 1 : 0,
+        }}
+      />
       {selectedRect && selectedNode && (
         <>
           <div
