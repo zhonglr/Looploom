@@ -26,6 +26,7 @@ import type {
 import { fitViewport, panBy, screenToWorld } from '../viewport/viewport'
 import type { Point } from '../viewport/viewport'
 import type { ViewportController } from '../viewport/useViewportController'
+import { createPointerSession } from './pointer-session'
 
 const AUTO_PAN_EDGE = 64
 const AUTO_PAN_SPEED = 16
@@ -146,6 +147,26 @@ export function useCanvasInteractions({
     })
   }, [])
 
+  const pointerSession = useRef<ReturnType<typeof createPointerSession> | null>(null)
+  if (pointerSession.current === null) {
+    pointerSession.current = createPointerSession({
+      onCancel: () => {
+        optionsRef.current.viewportController.endPan()
+        stopAutoPan()
+        dragRef.current!.cancel()
+        setHover(null)
+        setSettle(null)
+      },
+      onCaptureLost: () => {
+        optionsRef.current.viewportController.endPan()
+        stopAutoPan()
+        dragRef.current!.cancel()
+        setHover(null)
+        setSettle(null)
+      },
+    })
+  }
+
   useEffect(() => {
     return () => {
       if (autoPanRef.current !== null) {
@@ -154,6 +175,21 @@ export function useCanvasInteractions({
       if (settleTimerRef.current !== null) {
         window.clearTimeout(settleTimerRef.current)
       }
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleBlur = () => pointerSession.current?.cancel()
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        pointerSession.current?.cancel()
+      }
+    }
+    window.addEventListener('blur', handleBlur)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.removeEventListener('blur', handleBlur)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [])
 
@@ -229,7 +265,7 @@ export function useCanvasInteractions({
         y: event.clientY,
       })
       event.preventDefault()
-      event.currentTarget.setPointerCapture(event.pointerId)
+      pointerSession.current!.capture(event.currentTarget, event.pointerId)
       return
     }
     if (event.button !== 0) return
@@ -240,6 +276,7 @@ export function useCanvasInteractions({
     )
     optionsRef.current.controller.select(nodeId)
     if (nodeId === null || nodeId === optionsRef.current.snapshot.document.root.id) return
+    pointerSession.current!.capture(event.currentTarget, event.pointerId)
     const geometryMap = buildGeometry()
     geometryRef.current = geometryMap
     setGeometry(geometryMap)
@@ -277,24 +314,11 @@ export function useCanvasInteractions({
           pointerInViewport(event),
         ),
       )
-      return
     }
-    const pointer = { x: event.clientX, y: event.clientY }
-    const viewportElement = viewportRef.current
-    const viewportRect = viewportElement?.getBoundingClientRect()
-    const world = viewportRect
-      ? screenToWorld(viewportRef2.current, {
-          x: pointer.x - viewportRect.left,
-          y: pointer.y - viewportRect.top,
-        })
-      : { x: 0, y: 0 }
-    dragRef.current!.move(pointer, () =>
-      computeDropTarget(world, current.nodeId!, geometryRef.current, optionsRef.current.snapshot.document.root.id),
-    )
-    runAutoPan()
   }
 
   const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!pointerSession.current!.isActive(event.pointerId)) return
     optionsRef.current.viewportController.endPan()
     stopAutoPan()
     const state = dragRef.current!.getState()
@@ -317,20 +341,17 @@ export function useCanvasInteractions({
         setSettle(null)
       }, SETTLE_DURATION)
     }
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
+    pointerSession.current!.release()
   }
 
   const handlePointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!pointerSession.current!.isActive(event.pointerId)) return
     optionsRef.current.viewportController.endPan()
     stopAutoPan()
     dragRef.current!.cancel()
     setHover(null)
     setSettle(null)
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
+    pointerSession.current!.release()
   }
 
   const handlePointerLeave = () => {
