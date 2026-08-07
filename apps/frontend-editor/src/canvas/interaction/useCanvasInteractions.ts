@@ -6,7 +6,7 @@ import type {
 } from 'react'
 import type { RefObject } from 'react'
 import type { CanvasNodeId } from '../core/canvas-node'
-import { isContainerNode } from '../core/canvas-node'
+import { isLayoutNode } from '../core/canvas-node'
 import { getNode, getParent } from '../core/document'
 import type { CanvasEditorController, CanvasEditorSnapshot } from '../editor/controller'
 import type { NodeGeometrySnapshot, Rect } from '../dnd/geometry'
@@ -544,7 +544,7 @@ function computeLivePrevRect(
   const insertion = buildInsertionPreviewInternal(state.drop, geometry, state.nodeId)
   if (!insertion) return null
   const parent = getNode(document, parentId)
-  if (!parent || !isContainerNode(parent)) return null
+  if (!parent || !isLayoutNode(parent)) return null
   const filtered = parent.children.filter((child) => child.id !== state.nodeId)
   const prev = insertion.fromIndex > 0 ? filtered[insertion.fromIndex - 1] : undefined
   const rect = prev ? liveRects[prev.id] : undefined

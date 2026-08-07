@@ -7,6 +7,8 @@ import type { CanvasDocument, CanvasNodeId } from '../core/canvas-node'
 import { getNode } from '../core/document'
 import {
   createHistory,
+  peekRedo,
+  peekUndo,
   popRedo,
   popUndo,
   pushHistory,
@@ -58,19 +60,29 @@ export class CanvasEditorController {
   }
 
   undo(): CanvasCommandResult | null {
-    const { history, entry } = popUndo(this.history)
+    const entry = peekUndo(this.history)
     if (!entry) return null
-    this.history = history
     const applied = this.apply(entry.inverse)
+    if (applied.result.status !== 'committed') {
+      this.emit()
+      return this.withFreshHistoryFlags(applied.result)
+    }
+    const { history } = popUndo(this.history)
+    this.history = history
     this.emit()
     return this.withFreshHistoryFlags(applied.result)
   }
 
   redo(): CanvasCommandResult | null {
-    const { history, entry } = popRedo(this.history)
+    const entry = peekRedo(this.history)
     if (!entry) return null
-    this.history = history
     const applied = this.apply(entry.forward)
+    if (applied.result.status !== 'committed') {
+      this.emit()
+      return this.withFreshHistoryFlags(applied.result)
+    }
+    const { history } = popRedo(this.history)
+    this.history = history
     this.emit()
     return this.withFreshHistoryFlags(applied.result)
   }

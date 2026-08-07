@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import type { CanvasDocument, CanvasNode, CanvasNodeId } from '../core/canvas-node'
-import { isContainerNode } from '../core/canvas-node'
+import { isLayoutNode, isPageNode } from '../core/canvas-node'
 
 import type { FrameInsertionPreview } from '../frame/bridge'
 
@@ -40,7 +40,6 @@ export function DocumentRuntime({
       registry={registry}
       previewRegistry={previewRegistry}
       previewNode={previewNode}
-      isRoot
       depth={0}
       draggingNodeId={draggingNodeId}
       editingNodeId={editingNodeId}
@@ -57,7 +56,7 @@ export function NodeContent({ node }: { node: CanvasNode }) {
   if (node.kind === 'button') {
     return <>{node.label}</>
   }
-  if (node.kind === 'container') {
+  if (node.kind === 'container' || node.kind === 'page') {
     return <>{node.children.length} nodes</>
   }
   return <>{node.text}</>
@@ -68,7 +67,6 @@ interface RenderNodeProps {
   registry: NodeElementRegistry
   previewRegistry: NodeElementRegistry | undefined
   previewNode: CanvasNode | undefined
-  isRoot?: boolean
   depth: number
   draggingNodeId: CanvasNodeId | null
   editingNodeId: CanvasNodeId | null
@@ -85,7 +83,6 @@ function RenderNode({
   registry,
   previewRegistry,
   previewNode,
-  isRoot = false,
   depth,
   draggingNodeId,
   editingNodeId,
@@ -122,13 +119,13 @@ function RenderNode({
   const isDragging = draggingNodeId === node.id
   const isDisplacedParent = node.id === displacedParentId
 
-  if (isContainerNode(node)) {
+  if (isLayoutNode(node)) {
+    const isPage = isPageNode(node)
+    const nodeClass = isPage ? 'canvas-node-page' : 'canvas-node-container'
     const insertionForThis =
       insertionPreview && insertionPreview.parentId === node.id ? insertionPreview : null
     const horizontal = insertionForThis?.horizontal ?? false
     if (insertionForThis) {
-      // While dragging the element leaves the flow entirely (no space occupied);
-      // the live slot shows where it will land, sized by the real layout.
       const filtered = node.children.filter(
         (child) => child.id !== draggingNodeId,
       )
@@ -157,15 +154,14 @@ function RenderNode({
           ref={registerRef}
           data-canvas-node-id={node.id}
           data-canvas-depth={depth}
-        className={[
-          'canvas-node',
-          'canvas-node-container',
-          `canvas-node-layout-${node.layout}`,
-          isRoot ? 'canvas-node-root' : '',
-          isDragging ? 'canvas-node-dragging' : '',
-        ].filter(Boolean).join(' ')}
-      >
-        {before.map(renderChild)}
+          className={[
+            'canvas-node',
+            nodeClass,
+            `canvas-node-layout-${node.layout}`,
+            isDragging ? 'canvas-node-dragging' : '',
+          ].filter(Boolean).join(' ')}
+        >
+          {before.map(renderChild)}
           {previewNode && (
             <span
               ref={(element) => registerPreview(node.id, element)}
@@ -203,9 +199,8 @@ function RenderNode({
         data-canvas-depth={depth}
         className={[
           'canvas-node',
-          'canvas-node-container',
+          nodeClass,
           `canvas-node-layout-${node.layout}`,
-          isRoot ? 'canvas-node-root' : '',
           isDragging ? 'canvas-node-dragging' : '',
         ].filter(Boolean).join(' ')}
       >

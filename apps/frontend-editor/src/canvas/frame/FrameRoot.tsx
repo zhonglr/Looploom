@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CanvasDocument, CanvasNode, CanvasNodeId } from '../core/canvas-node'
-import { isContainerNode } from '../core/canvas-node'
+import { isLayoutNode } from '../core/canvas-node'
 import type { Rect } from '../dnd/geometry'
 import { createViewport } from '../viewport/viewport'
 import type { ViewportTransform } from '../viewport/viewport'
@@ -121,7 +121,7 @@ function measureAll(
       const rect = element.getBoundingClientRect()
       rects[node.id] = { x: rect.left, y: rect.top, width: rect.width, height: rect.height }
     }
-    if (isContainerNode(node)) {
+    if (isLayoutNode(node)) {
       for (const child of node.children) walk(child)
     }
   }

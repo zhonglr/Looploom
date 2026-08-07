@@ -9,6 +9,7 @@ export interface SelectionOverlayProps {
   selection: CanvasNodeId | null
   selectedNode: CanvasNode | undefined
   hover: CanvasNodeId | null
+  rootId: CanvasNodeId
 }
 
 interface OverlayRect {
@@ -24,19 +25,17 @@ export function SelectionOverlay({
   selection,
   selectedNode,
   hover,
+  rootId,
 }: SelectionOverlayProps) {
   const selectedRect = selection ? rectFor(geometry, viewport, selection) : undefined
+  const isHoveringRoot = hover === rootId
   const hoverRect =
-    hover && hover !== selection ? rectFor(geometry, viewport, hover) : undefined
+    hover && hover !== selection && !isHoveringRoot
+      ? rectFor(geometry, viewport, hover)
+      : undefined
 
   return (
     <div className="canvas-overlay" aria-hidden="true">
-      {hoverRect && (
-        <div
-          className="canvas-overlay-box canvas-overlay-box-hover"
-          style={boxStyle(hoverRect)}
-        />
-      )}
       {selectedRect && selectedNode && (
         <>
           <div

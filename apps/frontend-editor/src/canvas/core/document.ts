@@ -3,11 +3,14 @@ import type {
   CanvasDocument,
   CanvasNode,
   CanvasNodeId,
+  CanvasPageNode,
 } from './canvas-node'
-import { isContainerNode } from './canvas-node'
+import { isLayoutNode, isPageNode } from './canvas-node'
+
+export type CanvasLayoutParent = CanvasContainerNode | CanvasPageNode
 
 export interface ParentOfNode {
-  parent: CanvasContainerNode
+  parent: CanvasLayoutParent
   index: number
 }
 
@@ -53,12 +56,12 @@ export function getNode(
 }
 
 export function getNodeByPath(
-  root: CanvasContainerNode,
+  root: CanvasPageNode,
   path: readonly number[],
 ): CanvasNode | undefined {
   let node: CanvasNode = root
   for (const index of path) {
-    if (!isContainerNode(node)) return undefined
+    if (!isLayoutNode(node)) return undefined
     const child: CanvasNode | undefined = node.children[index]
     if (!child) return undefined
     node = child
@@ -79,7 +82,7 @@ function findNodePathIn(
   prefix: number[],
 ): number[] | undefined {
   if (node.id === nodeId) return prefix
-  if (!isContainerNode(node)) return undefined
+  if (!isLayoutNode(node)) return undefined
   for (let index = 0; index < node.children.length; index += 1) {
     const child: CanvasNode | undefined = node.children[index]
     if (!child) continue
@@ -97,8 +100,39 @@ export function getParent(
   if (!path || path.length === 0) return undefined
   const parentPath = path.slice(0, -1)
   const parent = getNodeByPath(document.root, parentPath)
-  if (!parent || !isContainerNode(parent)) return undefined
+  if (!parent || !isLayoutNode(parent)) return undefined
   return { parent, index: path[path.length - 1] ?? 0 }
+}
+
+export function collectNodeIds(node: CanvasNode): Set<CanvasNodeId> {
+  const ids = new Set<CanvasNodeId>([node.id])
+  if (isLayoutNode(node)) {
+    for (const child of node.children) {
+      for (const id of collectNodeIds(child)) {
+        ids.add(id)
+      }
+    }
+  }
+  return ids
+}
+
+export function findDuplicateIds(node: CanvasNode): CanvasNodeId[] {
+  const seen = new Set<CanvasNodeId>()
+  const duplicates = new Set<CanvasNodeId>()
+  function visit(n: CanvasNode): void {
+    if (seen.has(n.id)) {
+      duplicates.add(n.id)
+    } else {
+      seen.add(n.id)
+    }
+    if (isLayoutNode(n)) {
+      for (const child of n.children) {
+        visit(child)
+      }
+    }
+  }
+  visit(node)
+  return [...duplicates]
 }
 
 export function isDescendantOf(
@@ -123,7 +157,7 @@ export function insertNodeAt(
   const parentPath = findNodePath(document, parentId)
   if (!parentPath) return undefined
   const parent = getNodeByPath(document.root, parentPath)
-  if (!parent || !isContainerNode(parent)) return undefined
+  if (!parent || !isLayoutNode(parent)) return undefined
   const effectiveIndex = clampIndex(index, parent.children.length)
   const children = [...parent.children]
   children.splice(effectiveIndex, 0, node)
@@ -144,7 +178,7 @@ export function removeNodeAt(
   const parentPath = path.slice(0, -1)
   const index = path[path.length - 1] ?? 0
   const parent = getNodeByPath(document.root, parentPath)
-  if (!parent || !isContainerNode(parent)) return undefined
+  if (!parent || !isLayoutNode(parent)) return undefined
   const node = parent.children[index]
   if (!node) return undefined
   const children = parent.children.filter((_, childIndex) => childIndex !== index)
@@ -165,14 +199,10 @@ export function moveNodeIn(
 ): MoveNodeResult | undefined {
   const source = removeNodeAt(document, nodeId)
   if (!source) return undefined
-  const sameParent = source.parentId === targetParentId
-  const adjustedIndex = sameParent && targetIndex > source.index
-    ? targetIndex - 1
-    : targetIndex
-  const inserted = insertNodeAt(source.document, targetParentId, adjustedIndex, source.node)
+  const inserted = insertNodeAt(source.document, targetParentId, targetIndex, source.node)
   if (!inserted) return undefined
   const moved =
-    !sameParent || source.index !== inserted.index
+    source.parentId !== targetParentId || source.index !== inserted.index
   return {
     document: inserted.document,
     node: source.node,
@@ -205,15 +235,15 @@ export function setNodeText(
 }
 
 function replaceNodeAt(
-  root: CanvasContainerNode,
+  root: CanvasPageNode,
   path: readonly number[],
   replacement: CanvasNode,
-): CanvasContainerNode {
-  if (path.length === 0) return isContainerNode(replacement) ? replacement : root
+): CanvasPageNode {
+  if (path.length === 0) return isPageNode(replacement) ? replacement : root
   const parentPath = path.slice(0, -1)
   const index = path[path.length - 1] ?? 0
   const parent = getNodeByPath(root, parentPath)
-  if (!parent || !isContainerNode(parent)) return root
+  if (!parent || !isLayoutNode(parent)) return root
   const children = [...parent.children]
   children[index] = replacement
   return replaceNodeAt(root, parentPath, { ...parent, children })

@@ -3,8 +3,10 @@ import type {
   CanvasNode,
   CanvasNodeId,
 } from './canvas-node'
-import { isContainerNode } from './canvas-node'
+import { isLayoutNode } from './canvas-node'
 import {
+  collectNodeIds,
+  findDuplicateIds,
   getNode,
   getParent,
   insertNodeAt,
@@ -123,14 +125,35 @@ function applyAddNode(
   canUndo: boolean,
   canRedo: boolean,
 ): ApplyCommandResult {
-  if (getNode(document, command.node.id) !== undefined) {
-    return rejected(document, 'duplicate-node-id')
+  const internalDuplicate = findDuplicateIds(command.node)
+  if (internalDuplicate.length > 0) {
+    return {
+      document,
+      result: {
+        status: 'rejected',
+        code: 'duplicate-node-id',
+        message: `Incoming subtree contains duplicate node id: ${internalDuplicate[0]}`,
+      },
+    }
+  }
+  const incomingIds = collectNodeIds(command.node)
+  for (const existingId of incomingIds) {
+    if (getNode(document, existingId) !== undefined) {
+      return {
+        document,
+        result: {
+          status: 'rejected',
+          code: 'duplicate-node-id',
+          message: `A node with id "${existingId}" already exists in the document`,
+        },
+      }
+    }
   }
   const parent = getNode(document, command.parentId)
   if (parent === undefined) {
     return rejected(document, 'parent-not-found')
   }
-  if (!isContainerNode(parent)) {
+  if (!isLayoutNode(parent)) {
     return rejected(document, 'parent-not-container')
   }
   const inserted = insertNodeAt(
@@ -196,7 +219,7 @@ function applyMoveNode(
   if (targetParent === undefined) {
     return rejected(document, 'target-not-found')
   }
-  if (!isContainerNode(targetParent)) {
+  if (!isLayoutNode(targetParent)) {
     return rejected(document, 'target-not-container')
   }
   if (isDescendantOf(document, command.nodeId, command.targetParentId)) {

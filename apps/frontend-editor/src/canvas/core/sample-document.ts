@@ -1,9 +1,9 @@
-import type { CanvasContainerNode, CanvasDocument } from './canvas-node'
+import type { CanvasDocument, CanvasPageNode } from './canvas-node'
 
-const root: CanvasContainerNode = {
+const root: CanvasPageNode = {
   id: 'page-home',
   name: 'Home',
-  kind: 'container',
+  kind: 'page',
   layout: 'column',
   children: [
     {

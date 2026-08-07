@@ -196,6 +196,7 @@ export function CanvasView() {
             selection={snapshot.selection}
             selectedNode={selectedNode}
             hover={interactions.hover}
+            rootId={snapshot.document.root.id}
           />
         )}
         <DragOverlay

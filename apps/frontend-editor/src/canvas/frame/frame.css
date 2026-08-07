@@ -64,6 +64,14 @@ body {
   outline-offset: -1px;
 }
 
+.canvas-node-page {
+  display: flex;
+  width: 100%;
+  min-height: 100%;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
 .canvas-node-layout-row {
   flex-direction: row;
   align-items: flex-start;
@@ -72,11 +80,6 @@ body {
 .canvas-node-layout-column,
 .canvas-node-layout-block {
   flex-direction: column;
-}
-
-.canvas-node-root {
-  padding: 0;
-  outline: none;
 }
 
 .canvas-node-text {

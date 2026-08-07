@@ -23,12 +23,18 @@ export interface CanvasContainerNode extends CanvasNodeBase {
   children: CanvasNode[]
 }
 
-export type CanvasNode = CanvasTextNode | CanvasButtonNode | CanvasContainerNode
+export interface CanvasPageNode extends CanvasNodeBase {
+  kind: 'page'
+  layout: CanvasLayoutKind
+  children: CanvasNode[]
+}
+
+export type CanvasNode = CanvasTextNode | CanvasButtonNode | CanvasContainerNode | CanvasPageNode
 
 export interface CanvasDocument {
   id: CanvasNodeId
   name: string
-  root: CanvasContainerNode
+  root: CanvasPageNode
 }
 
 export type CanvasNodeKind = CanvasNode['kind']
@@ -39,7 +45,20 @@ export function isContainerNode(
   return node.kind === 'container'
 }
 
+export function isPageNode(
+  node: CanvasNode,
+): node is CanvasPageNode {
+  return node.kind === 'page'
+}
+
+export function isLayoutNode(
+  node: CanvasNode,
+): node is CanvasContainerNode | CanvasPageNode {
+  return node.kind === 'container' || node.kind === 'page'
+}
+
 const nodeKindLabels: Record<CanvasNodeKind, string> = {
+  page: 'Page',
   container: 'Container',
   text: 'Text',
   button: 'Button',
