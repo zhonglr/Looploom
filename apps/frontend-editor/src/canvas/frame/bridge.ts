@@ -4,7 +4,8 @@ import type { ViewportTransform } from '../viewport/viewport'
 
 export interface FrameEditingState {
   nodeId: CanvasNodeId
-  initialValue: string
+  draft: string
+  selectionRevision: number
 }
 
 export interface FramePageSize {
@@ -29,6 +30,13 @@ export interface FramePreviewSlot {
   prevRect: Rect | null
 }
 
+export interface ProjectionVersion {
+  frameSessionId: string
+  documentRevision: number
+  viewportRevision: number
+  interactionRevision: number
+}
+
 // Host → iframe
 export type HostToFrameMessage =
   | { type: 'document'; revision: number; document: CanvasDocument }
@@ -43,15 +51,16 @@ export type HostToFrameMessage =
 
 // iframe → Host
 export type FrameToHostMessage =
-  | { type: 'ready' }
+  | { type: 'ready'; frameSessionId: string }
   | {
       type: 'geometry'
-      revision: number
+      version: ProjectionVersion
       rects: Record<CanvasNodeId, Rect>
       pageSize: FramePageSize
       preview: FramePreviewSlot | null
     }
-  | { type: 'editCommit'; nodeId: CanvasNodeId; value: string }
+  | { type: 'editChange'; nodeId: CanvasNodeId; value: string }
+  | { type: 'editCommit'; nodeId: CanvasNodeId; value: string; selectionRevision: number }
   | { type: 'editCancel'; nodeId: CanvasNodeId }
 
 const hostOrigin = window.location.origin

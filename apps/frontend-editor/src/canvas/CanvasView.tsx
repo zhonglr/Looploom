@@ -6,7 +6,8 @@ import { useCanvasInteractions } from './interaction/useCanvasInteractions'
 import { SelectionOverlay } from './overlay/SelectionOverlay'
 import { DragOverlay } from './overlay/DragOverlay'
 import { postToFrame } from './frame/bridge'
-import type { FramePageSize, FrameToHostMessage } from './frame/bridge'
+import type { FramePageSize, ProjectionVersion } from './frame/bridge'
+import { validateFrameToHostMessage } from './frame/protocol'
 import { formatZoom } from './viewport/viewport'
 import { PAGE_MIN_HEIGHT, PAGE_WIDTH } from './core/page'
 import './styles/canvas.css'
@@ -24,7 +25,13 @@ export function CanvasView() {
     width: PAGE_WIDTH,
     height: PAGE_MIN_HEIGHT,
   })
-  const [frameReady, setFrameReady] = useState(false)
+  const [frameSession, setFrameSession] = useState(0)
+  const viewportRevisionRef = useRef(0)
+  const interactionRevisionRef = useRef(0)
+  const frameSessionIdRef = useRef<string | null>(null)
+  const expectedVersionRef = useRef<ProjectionVersion | null>(null)
+  const snapshotRevisionRef = useRef(snapshot.revision)
+  snapshotRevisionRef.current = snapshot.revision
 
   const viewportController = useViewportController({
     viewportRef,
@@ -54,10 +61,24 @@ export function CanvasView() {
   }, [snapshot.revision, snapshot.document])
 
   useEffect(() => {
+    viewportRevisionRef.current += 1
+    expectedVersionRef.current = {
+      frameSessionId: frameSessionIdRef.current ?? '',
+      documentRevision: snapshotRevisionRef.current,
+      viewportRevision: viewportRevisionRef.current,
+      interactionRevision: interactionRevisionRef.current,
+    }
     postToFrame(iframeRef.current, { type: 'viewport', transform: viewport })
   }, [viewport])
 
   useEffect(() => {
+    interactionRevisionRef.current += 1
+    expectedVersionRef.current = {
+      frameSessionId: frameSessionIdRef.current ?? '',
+      documentRevision: snapshotRevisionRef.current,
+      viewportRevision: viewportRevisionRef.current,
+      interactionRevision: interactionRevisionRef.current,
+    }
     postToFrame(iframeRef.current, {
       type: 'interaction',
       draggingNodeId,
@@ -67,14 +88,24 @@ export function CanvasView() {
     })
   }, [draggingNodeId, interactions.displacedParentId, interactions.insertionPreview, interactions.editing])
 
+  // oxlint-disable react-hooks/exhaustive-deps - recovery effect intentionally only reacts to frameSession changes
   useEffect(() => {
-    if (!frameReady) return
     postToFrame(iframeRef.current, {
       type: 'document',
-      revision: snapshot.revision,
+      revision: snapshotRevisionRef.current,
       document: snapshot.document,
     })
+    viewportRevisionRef.current = 0
+    interactionRevisionRef.current = 0
+    viewportRevisionRef.current += 1
     postToFrame(iframeRef.current, { type: 'viewport', transform: viewport })
+    interactionRevisionRef.current += 1
+    expectedVersionRef.current = {
+      frameSessionId: frameSessionIdRef.current ?? '',
+      documentRevision: snapshotRevisionRef.current,
+      viewportRevision: viewportRevisionRef.current,
+      interactionRevision: interactionRevisionRef.current,
+    }
     postToFrame(iframeRef.current, {
       type: 'interaction',
       draggingNodeId,
@@ -82,26 +113,20 @@ export function CanvasView() {
       insertionPreview: interactions.insertionPreview,
       editing: interactions.editing,
     })
-  }, [
-    frameReady,
-    snapshot.revision,
-    snapshot.document,
-    viewport,
-    draggingNodeId,
-    interactions.displacedParentId,
-    interactions.insertionPreview,
-    interactions.editing,
-  ])
+  }, [frameSession])
 
   useEffect(() => {
-    const handleMessage = (event: MessageEvent<FrameToHostMessage>) => {
+    const handleMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return
       if (event.source !== iframeRef.current?.contentWindow) return
-      if (event.data.type === 'ready') {
-        setFrameReady(true)
+      const result = validateFrameToHostMessage(event.data)
+      if (!result.ok) return
+      if (result.value.type === 'ready') {
+        frameSessionIdRef.current = result.value.frameSessionId
+        setFrameSession((s) => s + 1)
         return
       }
-      interactions.onFrameMessage(event.data)
+      interactions.onFrameMessage(result.value, expectedVersionRef.current)
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)

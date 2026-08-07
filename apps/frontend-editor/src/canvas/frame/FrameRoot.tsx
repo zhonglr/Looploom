@@ -8,34 +8,43 @@ import { DocumentRuntime } from '../runtime/DocumentRuntime'
 import type { NodeElementRegistry } from '../runtime/DocumentRuntime'
 import { getNode } from '../core/document'
 import { postToHost } from './bridge'
-import type { FrameEditingState, FrameInsertionPreview, HostToFrameMessage } from './bridge'
+import type { FrameEditingState, FrameInsertionPreview } from './bridge'
+import { validateHostToFrameMessage } from './protocol'
 import { PAGE_MIN_HEIGHT, PAGE_WIDTH } from '../core/page'
 
 export function FrameRoot() {
-  const [document, setDocument] = useState<CanvasDocument | null>(null)
+  const [projection, setProjection] = useState<{
+    document: CanvasDocument
+    revision: number
+  } | null>(null)
   const [viewport, setViewport] = useState<ViewportTransform>(() => createViewport())
   const [draggingNodeId, setDraggingNodeId] = useState<CanvasNodeId | null>(null)
   const [displacedParentId, setDisplacedParentId] = useState<CanvasNodeId | null>(null)
   const [insertionPreview, setInsertionPreview] = useState<FrameInsertionPreview | null>(null)
   const [editing, setEditing] = useState<FrameEditingState | null>(null)
-  const revisionRef = useRef(0)
   const registryRef = useRef<NodeElementRegistry>(new Map())
   const previewRegistryRef = useRef<NodeElementRegistry>(new Map())
   const pageRef = useRef<HTMLDivElement>(null)
+  const frameSessionIdRef = useRef(`frame-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
+  const viewportRevisionRef = useRef(0)
+  const interactionRevisionRef = useRef(0)
 
   useEffect(() => {
-    const handleMessage = (event: MessageEvent<HostToFrameMessage>) => {
+    const handleMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return
-      const message = event.data
+      const result = validateHostToFrameMessage(event.data)
+      if (!result.ok) return
+      const message = result.value
       switch (message.type) {
         case 'document':
-          revisionRef.current = message.revision
-          setDocument(message.document)
+          setProjection({ document: message.document, revision: message.revision })
           break
         case 'viewport':
+          viewportRevisionRef.current += 1
           setViewport(message.transform)
           break
         case 'interaction':
+          interactionRevisionRef.current += 1
           setDraggingNodeId(message.draggingNodeId)
           setDisplacedParentId(message.displacedParentId)
           setInsertionPreview(message.insertionPreview)
@@ -44,25 +53,33 @@ export function FrameRoot() {
       }
     }
     window.addEventListener('message', handleMessage)
-    postToHost({ type: 'ready' })
+    postToHost({ type: 'ready', frameSessionId: frameSessionIdRef.current })
     return () => window.removeEventListener('message', handleMessage)
   }, [])
 
   const reportGeometry = useCallback(() => {
-    if (!document) return
-    const rects = measureAll(document, registryRef.current)
+    if (!projection) return
+    const rects = measureAll(projection.document, registryRef.current)
     const page = pageRef.current
     const preview = measurePreview(previewRegistryRef.current, registryRef.current)
     postToHost({
       type: 'geometry',
-      revision: revisionRef.current,
+      version: {
+        frameSessionId: frameSessionIdRef.current,
+        documentRevision: projection.revision,
+        viewportRevision: viewportRevisionRef.current,
+        interactionRevision: interactionRevisionRef.current,
+      },
       rects,
       pageSize: page
-        ? { width: page.getBoundingClientRect().width, height: page.getBoundingClientRect().height }
+        ? {
+            width: page.getBoundingClientRect().width / viewport.scale,
+            height: page.getBoundingClientRect().height / viewport.scale,
+          }
         : { width: PAGE_WIDTH, height: PAGE_MIN_HEIGHT },
       preview,
     })
-  }, [document])
+  }, [projection, viewport])
 
   useLayoutEffect(() => {
     reportGeometry()
@@ -89,11 +106,11 @@ export function FrameRoot() {
             style={{ zoom: viewport.scale, width: PAGE_WIDTH, minHeight: PAGE_MIN_HEIGHT }}
           >
             <DocumentRuntime
-              document={document}
+              document={projection.document}
               registry={registryRef.current}
               previewRegistry={previewRegistryRef.current}
               previewNode={
-                draggingNodeId ? getNode(document, draggingNodeId) : undefined
+                draggingNodeId ? getNode(projection.document, draggingNodeId) : undefined
               }
               draggingNodeId={draggingNodeId}
               displacedParentId={displacedParentId}

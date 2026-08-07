@@ -21,6 +21,7 @@ import type {
   FramePageSize,
   FramePreviewSlot,
   FrameToHostMessage,
+  ProjectionVersion,
 } from '../frame/bridge'
 import { fitViewport, panBy, screenToWorld } from '../viewport/viewport'
 import type { Point } from '../viewport/viewport'
@@ -55,7 +56,7 @@ export interface CanvasInteractions {
   handlePointerLeave: () => void
   handleDoubleClick: (event: ReactMouseEvent<HTMLDivElement>) => void
   handleKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
-  onFrameMessage: (message: FrameToHostMessage) => void
+  onFrameMessage: (message: FrameToHostMessage, expectedVersion: ProjectionVersion | null) => void
 }
 
 export function useCanvasInteractions({
@@ -388,12 +389,19 @@ export function useCanvasInteractions({
     }
   }
 
-  const onFrameMessage = (message: FrameToHostMessage) => {
+  const onFrameMessage = (message: FrameToHostMessage, expectedVersion: ProjectionVersion | null) => {
     const options = optionsRef.current
     switch (message.type) {
       case 'ready':
         break
       case 'geometry': {
+        if (
+          expectedVersion !== null &&
+          (message.version.frameSessionId !== expectedVersion.frameSessionId ||
+            message.version.documentRevision !== expectedVersion.documentRevision)
+        ) {
+          return
+        }
         frameRectsRef.current = message.rects
         options.onPageSize(message.pageSize)
         if (dragRef.current?.getState().status === 'dragging') {
