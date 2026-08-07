@@ -49,6 +49,8 @@ body {
 }
 
 .canvas-frame-page {
+  display: flex;
+  flex-direction: column;
   background: var(--spectrum-background-elevated-color);
   border: 1px solid var(--spectrum-gray-300);
 }
@@ -66,8 +68,9 @@ body {
 
 .canvas-node-page {
   display: flex;
+  flex-direction: column;
   width: 100%;
-  min-height: 100%;
+  flex: 1;
   gap: 8px;
   box-sizing: border-box;
 }

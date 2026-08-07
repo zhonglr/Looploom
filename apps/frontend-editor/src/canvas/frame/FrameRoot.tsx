@@ -61,6 +61,18 @@ export function FrameRoot() {
     if (!projection) return
     const rects = measureAll(projection.document, registryRef.current)
     const page = pageRef.current
+    if (page) {
+      // The page node fills the whole surface, but report the full surface
+      // (including the border) so hit-testing and drop-targeting treat the
+      // whole canvas as the page container.
+      const pageRect = page.getBoundingClientRect()
+      rects[projection.document.root.id] = {
+        x: pageRect.left,
+        y: pageRect.top,
+        width: pageRect.width,
+        height: pageRect.height,
+      }
+    }
     const preview = measurePreview(previewRegistryRef.current, registryRef.current)
     postToHost({
       type: 'geometry',

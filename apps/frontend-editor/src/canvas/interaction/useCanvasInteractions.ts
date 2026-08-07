@@ -30,6 +30,7 @@ import { createPointerSession } from './pointer-session'
 
 const AUTO_PAN_EDGE = 64
 const AUTO_PAN_SPEED = 16
+const PAGE_EDGE_DROP_ZONE = 48
 const SETTLE_DURATION = 190
 const FIT_PADDING = 48
 
@@ -250,7 +251,13 @@ export function useCanvasInteractions({
           y: pointer.y - vpRect.top,
         })
         dragRef.current!.move(pointer, () =>
-          computeDropTarget(world, drag.nodeId!, geometryRef.current, optionsRef.current.snapshot.document.root.id),
+          computeDropTarget(
+            world,
+            drag.nodeId!,
+            geometryRef.current,
+            optionsRef.current.snapshot.document.root.id,
+            PAGE_EDGE_DROP_ZONE / viewportRef2.current.scale,
+          ),
         )
       }
       autoPanRef.current = requestAnimationFrame(tick)
@@ -336,7 +343,13 @@ export function useCanvasInteractions({
             })
           : { x: 0, y: 0 }
         dragRef.current!.move(pointer, () =>
-          computeDropTarget(world, current.nodeId!, geometryRef.current, optionsRef.current.snapshot.document.root.id),
+          computeDropTarget(
+            world,
+            current.nodeId!,
+            geometryRef.current,
+            optionsRef.current.snapshot.document.root.id,
+            PAGE_EDGE_DROP_ZONE / viewportRef2.current.scale,
+          ),
         )
         runAutoPan()
         return

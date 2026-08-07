@@ -30,10 +30,20 @@ export function computeDropTarget(
   dragNodeId: CanvasNodeId,
   geometry: NodeGeometrySnapshot,
   rootId: CanvasNodeId,
+  pageEdgeZoneWorld: number,
 ): DropTarget {
   if (dragNodeId === rootId) {
     return { status: 'rejected', reason: 'cannot-drag-root' }
   }
+
+  const pageEdgeTarget = findPageEdgeTarget(
+    pointerWorld,
+    dragNodeId,
+    geometry,
+    rootId,
+    pageEdgeZoneWorld,
+  )
+  if (pageEdgeTarget) return pageEdgeTarget
 
   const targetContainer = findDeepestContainerContaining(pointerWorld, geometry)
   if (!targetContainer) {
@@ -48,6 +58,50 @@ export function computeDropTarget(
     targetContainer.id,
     dragNodeId,
     pointerWorld,
+  )
+}
+
+function findPageEdgeTarget(
+  point: Point,
+  dragNodeId: CanvasNodeId,
+  geometry: NodeGeometrySnapshot,
+  rootId: CanvasNodeId,
+  edgeZone: number,
+): Extract<DropTarget, { status: 'valid' }> | undefined {
+  const root = geometry.get(rootId)
+  if (!root?.isContainer || !root.layout || edgeZone <= 0) return undefined
+
+  const horizontal = isHorizontalLayout(root.layout)
+  const mainPoint = horizontal ? point.x : point.y
+  const crossPoint = horizontal ? point.y : point.x
+  const mainStart = horizontal ? root.rect.x : root.rect.y
+  const mainEnd = horizontal
+    ? root.rect.x + root.rect.width
+    : root.rect.y + root.rect.height
+  const crossStart = horizontal ? root.rect.y : root.rect.x
+  const crossEnd = horizontal
+    ? root.rect.y + root.rect.height
+    : root.rect.x + root.rect.width
+
+  if (crossPoint < crossStart - edgeZone || crossPoint > crossEnd + edgeZone) {
+    return undefined
+  }
+
+  const leadingDistance = Math.abs(mainPoint - mainStart)
+  const trailingDistance = Math.abs(mainPoint - mainEnd)
+  if (Math.min(leadingDistance, trailingDistance) > edgeZone) return undefined
+
+  if (root.childIds.length === 0) {
+    return validTarget(rootId, 0, 'inside', dragNodeId, geometry)
+  }
+
+  const leading = leadingDistance <= trailingDistance
+  return validTarget(
+    rootId,
+    leading ? 0 : root.childIds.length,
+    leading ? 'before' : 'after',
+    dragNodeId,
+    geometry,
   )
 }
 
