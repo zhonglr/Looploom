@@ -8,6 +8,7 @@
 | Scope | `apps/frontend-editor/src/canvas` and directly related tests and UI primitives |
 | Baseline | `9950437` |
 | Risk | High: document history, cross-frame projection, and primary pointer interaction |
+| Human acceptance owner | Product owner or requester |
 | Governing standards | `docs/frontend/coding-standards.md`, `docs/canvas-functionalities.md`, `docs/development-workflow.md` |
 
 ## 1. Purpose
@@ -987,22 +988,66 @@ Required coverage:
 - Light/dark tokens, focus-visible, reduced motion, clipping, and computed font size.
 - axe with no serious or critical findings.
 
+Automated browser checks are the implementation responsibility. They provide deterministic evidence for event delivery, DOM state, geometry, focus, computed styles, accessibility rules, and regression behavior. Passing them does not certify subjective visual quality or interaction feel.
+
+### 8.6 Human visual and interaction acceptance
+
+The human acceptance owner makes the final decision for user-visible behavior. Automated implementation tools must not mark these items accepted based only on screenshots, DOM assertions, or generated reports.
+
+Human acceptance is required for:
+
+- Selection, hover, drag ghost, insertion line, insertion band, and rejection clarity.
+- Drag activation feel, pointer responsiveness, auto-pan speed, and perceived latency.
+- Zoom clarity at representative fractional scales and high-DPI displays.
+- Fit composition, page positioning, clipping, and visual stability.
+- Inline editing size, alignment, focus indication, and commit/cancel experience.
+- Animation duration, easing, interruption behavior, and reduced-motion experience.
+- Toolbar affordance, disabled states, keyboard focus visibility, and visual hierarchy.
+- Light and dark appearance on representative desktop viewport sizes.
+- Any change that claims to preserve existing visuals or improve usability.
+
+Packages W07B through W07E, W09B through W09C, and W10 through W12 use a two-stage result:
+
+| Stage | Meaning | Owner |
+| --- | --- | --- |
+| Ready for visual review | Implementation and deterministic automated checks pass; evidence and reproduction steps are prepared | Implementer |
+| Accepted | The human acceptance owner has exercised the affected scenarios and approved the visible result | Product owner or requester |
+
+The human acceptance owner may reject an implementation even when all automated checks pass. Rejection must identify the scenario and observed problem; the implementer then updates behavior and automated regression coverage where the issue can be expressed deterministically.
+
+### 8.7 Visual review handoff packet
+
+The implementer must provide a concise handoff for every package requiring human acceptance:
+
+| Item | Required content |
+| --- | --- |
+| Build | Exact branch, commit, and command used to launch the editor |
+| Scope | User-visible behavior changed and behavior intentionally unchanged |
+| Scenarios | Numbered steps for normal, cancellation, rejection, and rapid-repeat paths |
+| Viewports | Recommended viewport sizes, zoom levels, color schemes, and reduced-motion setting |
+| Evidence | Automated checks already completed and known residual risks |
+| Decision | Explicit `accepted`, `rejected`, or `needs follow-up` field for the human reviewer |
+
+The human reviewer is not responsible for writing unit tests, inspecting internal reducer state, simulating protocol races, or proving history invariants. Those remain implementation responsibilities.
+
 ## 9. Acceptance matrix
 
-| Requirement | Required evidence |
-| --- | --- |
-| Domain correctness | Unit suite demonstrates exact move/undo/redo round trips |
-| History atomicity | Forced replay failure leaves complete snapshot unchanged |
-| Projection consistency | Delayed reports never replace current geometry |
-| Frame recovery | Frame-only reload reconstructs the full current projection |
-| Pointer lifecycle | External release and focus loss always reach idle |
-| Feedback correctness | Placed state appears only after `committed` |
-| Runtime isolation | Drag preview causes zero user-component remounts |
-| Edit recovery | Draft survives frame reload and latest user selection wins |
-| Viewport correctness | Fit is idempotent and wheel behavior is normalized |
-| Accessibility | Keyboard-only workflow succeeds and status is announced |
-| Standards | Primitive, token, focus, motion, ASCII, and formatting checks pass |
-| Delivery | Typecheck, lint, unit, browser, build, and diff checks pass from a fresh checkout |
+| Requirement | Required evidence | Acceptance owner |
+| --- | --- | --- |
+| Domain correctness | Unit suite demonstrates exact move/undo/redo round trips | Implementer |
+| History atomicity | Forced replay failure leaves complete snapshot unchanged | Implementer |
+| Projection consistency | Delayed reports never replace current geometry | Implementer |
+| Frame recovery | Automated frame-only reload reconstructs the full current projection | Implementer |
+| Pointer lifecycle | Automated external release and focus-loss scenarios always reach idle | Implementer |
+| Interaction quality | Manual drag, pan, zoom, cancellation, and rapid-repeat scenarios feel predictable | Human acceptance owner |
+| Feedback correctness | Automation proves feedback follows `committed`; human review confirms clarity and placement | Shared: implementer then human acceptance owner |
+| Runtime isolation | Drag preview causes zero user-component remounts | Implementer |
+| Edit recovery | Automation proves draft recovery; human review confirms size, alignment, and workflow | Shared: implementer then human acceptance owner |
+| Viewport correctness | Automation proves Fit and wheel rules; human review confirms composition and visual stability | Shared: implementer then human acceptance owner |
+| Accessibility | Automated keyboard and axe checks plus human focus and announcement review | Shared: implementer then human acceptance owner |
+| Visual standards | Human review of primitives, focus, motion, hierarchy, light/dark, and reduced motion | Human acceptance owner |
+| Source standards | Token usage, ASCII, formatting, typecheck, lint, and diff checks pass | Implementer |
+| Delivery | Unit, browser, and production build gates pass; required human decisions are recorded | Delivery owner |
 
 ## 10. Implementation rules
 
@@ -1018,6 +1063,9 @@ Required coverage:
 10. Do not merge a work package unless its cleanup paths are tested.
 11. Keep each commit focused on one work package or one tightly coupled dependency pair.
 12. Update this document and the relevant milestone plan when implementation changes a recorded contract.
+13. Do not claim subjective visual or interaction acceptance from automated evidence alone.
+14. Mark visible work `ready for visual review` after automated gates; mark it `accepted` only after the human decision is recorded.
+15. Do not ask the human acceptance owner to replace deterministic unit, protocol, state-machine, or browser automation.
 
 ## 11. Completion criteria
 
@@ -1033,8 +1081,11 @@ The hardening program is complete only when all of the following are true:
 - Pointer, keyboard, and assistive-technology paths have equivalent essential capability.
 - Canvas behavior tests are committed and run through package scripts.
 - Typecheck, lint, tests, browser tests, production build, and diff checks all pass.
+- Every package requiring human visual acceptance has a recorded `accepted` decision.
 
 ## 12. Recommended delivery sequence
+
+The exit conditions below are technical exit conditions. For packages listed in section 8.6, reaching the technical exit condition changes status to `ready for visual review`; it does not complete acceptance until the human decision is recorded.
 
 | Stage | Work package | Exit condition | Parallelism |
 | --- | --- | --- | --- |
