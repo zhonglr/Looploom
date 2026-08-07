@@ -122,8 +122,9 @@ export function FrameRoot() {
               displacedParentId={displacedParentId}
               insertionPreview={insertionPreview}
               editingNodeId={editing?.nodeId ?? null}
-              editingValueRef={undefined}
-              onEditCommit={(nodeId, value) => postToHost({ type: 'editCommit', nodeId, value })}
+              editingDraft={editing?.draft ?? null}
+              onEditChange={(nodeId, value) => postToHost({ type: 'editChange', nodeId, value })}
+              onEditCommit={(nodeId, value, selectionRevision) => postToHost({ type: 'editCommit', nodeId, value, selectionRevision })}
               onEditCancel={(nodeId) => postToHost({ type: 'editCancel', nodeId })}
             />
           </div>

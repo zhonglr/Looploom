@@ -92,6 +92,8 @@ export function useCanvasInteractions({
   const [editing, setEditing] = useState<FrameEditingState | null>(null)
   const editingRef = useRef<FrameEditingState | null>(null)
   editingRef.current = editing
+  const selectionRevisionRef = useRef(0)
+  const editingSelectionRevisionRef = useRef(0)
 
   const [dragState, setDragState] = useState<DragState>(IDLE_DRAG_STATE)
   const dragRef = useRef<DragController | null>(null)
@@ -306,21 +308,42 @@ export function useCanvasInteractions({
     )
     if (!nodeId) return
     const node = getNode(optionsRef.current.snapshot.document, nodeId)
-    if (!node || node.kind === 'container') return
+    if (!node || node.kind === 'container' || node.kind === 'page') return
     const initialValue = node.kind === 'text' ? node.text : node.label
     optionsRef.current.controller.select(nodeId)
-    setEditing({ nodeId, initialValue })
+    selectionRevisionRef.current += 1
+    editingSelectionRevisionRef.current = selectionRevisionRef.current
+    setEditing({ nodeId, draft: initialValue, selectionRevision: selectionRevisionRef.current })
   }
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const viewportCtrl = optionsRef.current.viewportController
-    if (viewportCtrl.isPanActive()) {
-      viewportCtrl.updatePan({ x: event.clientX, y: event.clientY })
-      return
-    }
     const current = dragRef.current!.getState()
-    if (current.status === 'idle') {
-      if (editingRef.current !== null) return
+
+    if (pointerSession.current!.isActive(event.pointerId)) {
+      const viewportCtrl = optionsRef.current.viewportController
+      if (viewportCtrl.isPanActive()) {
+        viewportCtrl.updatePan({ x: event.clientX, y: event.clientY })
+        return
+      }
+      if (current.status === 'pending' || current.status === 'dragging') {
+        const pointer = { x: event.clientX, y: event.clientY }
+        const viewportElement = viewportRef.current
+        const viewportRect = viewportElement?.getBoundingClientRect()
+        const world = viewportRect
+          ? screenToWorld(viewportRef2.current, {
+              x: pointer.x - viewportRect.left,
+              y: pointer.y - viewportRect.top,
+            })
+          : { x: 0, y: 0 }
+        dragRef.current!.move(pointer, () =>
+          computeDropTarget(world, current.nodeId!, geometryRef.current, optionsRef.current.snapshot.document.root.id),
+        )
+        runAutoPan()
+        return
+      }
+    }
+
+    if (current.status === 'idle' && editingRef.current === null) {
       setHover(
         hitTestNode(
           optionsRef.current.snapshot.document,
@@ -411,6 +434,9 @@ export function useCanvasInteractions({
         setHover(null)
         setSettle(null)
       } else {
+        if (options.snapshot.selection !== null) {
+          selectionRevisionRef.current += 1
+        }
         options.controller.select(null)
       }
       return
@@ -419,6 +445,7 @@ export function useCanvasInteractions({
       const parent = getParent(options.snapshot.document, options.snapshot.selection)
       if (parent) {
         event.preventDefault()
+        selectionRevisionRef.current += 1
         options.controller.select(parent.parent.id)
       }
     }
@@ -490,14 +517,29 @@ export function useCanvasInteractions({
         }
         break
       }
+      case 'editChange':
+        if (editingRef.current?.nodeId === message.nodeId) {
+          setEditing({ nodeId: message.nodeId, draft: message.value, selectionRevision: editingRef.current.selectionRevision })
+        }
+        break
       case 'editCommit':
         if (editingRef.current?.nodeId === message.nodeId) {
+          const selectionRevisionAtEditStart = message.selectionRevision
           setEditing(null)
           options.controller.execute({
             type: 'document.setText',
             nodeId: message.nodeId,
             value: message.value,
           })
+          // CAN-024: If the user changed selection externally while editing,
+          // preserve their latest selection instead of letting the text command
+          // jump selection back to the edited node.
+          if (selectionRevisionAtEditStart !== selectionRevisionRef.current) {
+            const currentSelection = options.controller.getSnapshot().selection
+            if (currentSelection !== null && currentSelection !== message.nodeId) {
+              options.controller.select(currentSelection)
+            }
+          }
         }
         break
       case 'editCancel':

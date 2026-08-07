@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { MutableRefObject } from 'react'
 import type { CanvasDocument, CanvasNode, CanvasNodeId } from '../core/canvas-node'
 import { isLayoutNode, isPageNode } from '../core/canvas-node'
 
@@ -16,9 +15,11 @@ export interface DocumentRuntimeProps {
   editingNodeId?: CanvasNodeId | null
   displacedParentId?: CanvasNodeId | null
   insertionPreview?: FrameInsertionPreview | null
-  editingValueRef: MutableRefObject<string | null> | undefined
-  onEditCommit: ((nodeId: CanvasNodeId, value: string) => void) | undefined
-  onEditCancel: ((nodeId: CanvasNodeId) => void) | undefined
+  editingDraft?: string | null
+  editingSelectionRevision?: number
+  onEditChange: (nodeId: CanvasNodeId, value: string) => void
+  onEditCommit: (nodeId: CanvasNodeId, value: string, selectionRevision: number) => void
+  onEditCancel: (nodeId: CanvasNodeId) => void
 }
 
 export function DocumentRuntime({
@@ -30,7 +31,9 @@ export function DocumentRuntime({
   editingNodeId = null,
   displacedParentId = null,
   insertionPreview = null,
-  editingValueRef,
+  editingDraft = null,
+  editingSelectionRevision = 0,
+  onEditChange,
   onEditCommit,
   onEditCancel,
 }: DocumentRuntimeProps) {
@@ -45,7 +48,9 @@ export function DocumentRuntime({
       editingNodeId={editingNodeId}
       displacedParentId={displacedParentId}
       insertionPreview={insertionPreview}
-      editingValueRef={editingValueRef}
+      editingDraft={editingDraft}
+      editingSelectionRevision={editingSelectionRevision}
+      onEditChange={onEditChange}
       onEditCommit={onEditCommit}
       onEditCancel={onEditCancel}
     />
@@ -73,9 +78,11 @@ interface RenderNodeProps {
   displacedParentId: CanvasNodeId | null
   insertionPreview: FrameInsertionPreview | null
   displaced?: boolean
-  editingValueRef: MutableRefObject<string | null> | undefined
-  onEditCommit: ((nodeId: CanvasNodeId, value: string) => void) | undefined
-  onEditCancel: ((nodeId: CanvasNodeId) => void) | undefined
+  editingDraft: string | null
+  editingSelectionRevision: number
+  onEditChange: (nodeId: CanvasNodeId, value: string) => void
+  onEditCommit: (nodeId: CanvasNodeId, value: string, selectionRevision: number) => void
+  onEditCancel: (nodeId: CanvasNodeId) => void
 }
 
 function RenderNode({
@@ -89,7 +96,9 @@ function RenderNode({
   displacedParentId,
   insertionPreview,
   displaced = false,
-  editingValueRef,
+  editingDraft,
+  editingSelectionRevision,
+  onEditChange,
   onEditCommit,
   onEditCancel,
 }: RenderNodeProps) {
@@ -144,7 +153,9 @@ function RenderNode({
           displacedParentId={displacedParentId}
           insertionPreview={insertionPreview}
           displaced={false}
-          editingValueRef={editingValueRef}
+          editingDraft={editingDraft}
+          editingSelectionRevision={editingSelectionRevision}
+          onEditChange={onEditChange}
           onEditCommit={onEditCommit}
           onEditCancel={onEditCancel}
         />
@@ -182,7 +193,9 @@ function RenderNode({
                 editingNodeId={editingNodeId}
                 displacedParentId={displacedParentId}
                 insertionPreview={insertionPreview}
-                editingValueRef={editingValueRef}
+                editingDraft={editingDraft}
+                editingSelectionRevision={editingSelectionRevision}
+                onEditChange={onEditChange}
                 onEditCommit={onEditCommit}
                 onEditCancel={onEditCancel}
               />
@@ -219,7 +232,9 @@ function RenderNode({
               displacedParentId={displacedParentId}
               insertionPreview={insertionPreview}
               displaced={isDisplacedParent}
-              editingValueRef={editingValueRef}
+              editingDraft={editingDraft}
+              editingSelectionRevision={editingSelectionRevision}
+              onEditChange={onEditChange}
               onEditCommit={onEditCommit}
               onEditCancel={onEditCancel}
             />
@@ -229,16 +244,16 @@ function RenderNode({
   }
 
   const isEditing = editingNodeId === node.id
-  const initialValue = node.kind === 'text' ? node.text : node.label
-  if (isEditing && onEditCommit) {
+  if (isEditing) {
     return (
       <InlineEditor
         node={node}
         registry={registry}
-        initialValue={initialValue}
-        editingValueRef={editingValueRef}
-        onCommit={(value) => onEditCommit(node.id, value)}
-        onCancel={() => onEditCancel?.(node.id)}
+        value={editingDraft ?? (node.kind === 'text' ? node.text : node.label)}
+        selectionRevision={editingSelectionRevision}
+        onEditChange={(value) => onEditChange(node.id, value)}
+        onCommit={(value, revision) => onEditCommit(node.id, value, revision)}
+        onCancel={() => onEditCancel(node.id)}
       />
     )
   }
@@ -280,33 +295,37 @@ function RenderNode({
 interface InlineEditorProps {
   node: CanvasNode
   registry: NodeElementRegistry
-  initialValue: string
-  editingValueRef: MutableRefObject<string | null> | undefined
-  onCommit: (value: string) => void
+  value: string
+  selectionRevision: number
+  onEditChange: (value: string) => void
+  onCommit: (value: string, selectionRevision: number) => void
   onCancel: () => void
 }
 
 function InlineEditor({
   node,
   registry,
-  initialValue,
-  editingValueRef,
+  value: hostValue,
+  selectionRevision,
+  onEditChange,
   onCommit,
   onCancel,
 }: InlineEditorProps) {
-  const [value, setValue] = useState(initialValue)
   const ref = useRef<HTMLTextAreaElement | HTMLInputElement>(null)
   const settledRef = useRef(false)
   const isButton = node.kind === 'button'
+  const [localValue, setLocalValue] = useState(hostValue)
+  const localValueRef = useRef(localValue)
+  localValueRef.current = localValue
 
   useEffect(() => {
-    if (editingValueRef) editingValueRef.current = initialValue
-  }, [editingValueRef, initialValue])
+    setLocalValue(hostValue)
+  }, [hostValue])
 
   const commit = () => {
     if (settledRef.current) return
     settledRef.current = true
-    onCommit(value)
+    onCommit(localValueRef.current, selectionRevision)
   }
 
   const cancel = () => {
@@ -324,12 +343,17 @@ function InlineEditor({
     }
   }, [])
 
+  const handleChange = (event: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => {
+    const next = event.target.value
+    setLocalValue(next)
+    localValueRef.current = next
+    onEditChange(next)
+  }
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      if (!isButton) {
-        event.preventDefault()
-        commit()
-      }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      commit()
     } else if (event.key === 'Escape') {
       event.preventDefault()
       cancel()
@@ -355,12 +379,9 @@ function InlineEditor({
         type="text"
         className={className}
         data-canvas-node-id={node.id}
-        value={value}
+        value={localValue}
         spellCheck={false}
-        onChange={(event) => {
-          setValue(event.target.value)
-          if (editingValueRef) editingValueRef.current = event.target.value
-        }}
+        onChange={handleChange}
         onKeyDown={handleKeyDown}
         onBlur={() => commit()}
       />
@@ -379,13 +400,10 @@ function InlineEditor({
       }}
       className={className}
       data-canvas-node-id={node.id}
-      value={value}
+      value={localValue}
       rows={1}
       spellCheck={false}
-      onChange={(event) => {
-        setValue(event.target.value)
-        if (editingValueRef) editingValueRef.current = event.target.value
-      }}
+      onChange={handleChange}
       onKeyDown={handleKeyDown}
       onBlur={() => commit()}
     />
