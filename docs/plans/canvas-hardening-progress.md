@@ -51,3 +51,4 @@ Stage 4 complete. All packages through Stage 4 done. Ready for Stage 5.
 | 2026-08-07 | Editing draft: Host-owned via interaction state | CAN-022 | Frame reload resends draft via recovery effect |
 | 2026-08-07 | InlineEditor: Enter commits, Escape cancels, no newlines | CAN-023 | Consistent semantics for text + button |
 | 2026-08-07 | Selection revision: compare on editCommit | CAN-024 | External selection change wins over async commit |
+| 2026-08-07 | Drop feedback: disable position transitions while viewport moves | CAN-035 | Highlight tracks auto-pan exactly; easing kept for target switches |

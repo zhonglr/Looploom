@@ -923,6 +923,21 @@ W09B is intentionally separate from W09C. Stabilizing the source component is th
 | Expected result | The architecture invariants become executable release gates. |
 | Acceptance | Fresh checkout can run all tests with documented commands and no temporary files. |
 
+### CAN-035: Drop feedback lags the canvas during auto-pan
+
+| Field | Detail |
+| --- | --- |
+| Priority | P2 |
+| Invariants | INV-08 |
+| Evidence | `styles/canvas.css:195-264`, `overlay/DragOverlay.tsx:176-199` |
+| Problem | `.canvas-drop-highlight`, `.canvas-insertion-band`, and `.canvas-insertion-line` carry 150ms CSS transitions on `left/top/width/height`. The frame canvas pans instantly via `transform: translate()` (`.canvas-frame-stage`), so while auto-pan moves the canvas every animation frame the drop feedback chases a moving target and renders roughly 150ms behind. |
+| Impact | During auto-pan the highlight, insertion band, and insertion line appear offset from the container under the pointer, showing placement feedback at the wrong screen position. |
+| Dependencies | W09A overlay geometry extraction; W09C overlay-only target preview |
+| Allowed scope | DragOverlay transition policy and canvas.css motion rules |
+| Repair | Disable position transitions on drop feedback while the viewport is moving and keep the eased transitions for drop-target switches on a static viewport. Implemented in `DragOverlay.tsx` by tracking the last committed viewport and applying an inline `transition: none` while it changes. |
+| Expected result | Drop feedback tracks the panning canvas exactly while still easing between targets when the viewport is static. |
+| Acceptance | Auto-pan a drag to the viewport edge and verify the highlight stays aligned with the target container at all times; verify target-switch easing still animates when the viewport is static. |
+
 ## 8. Test architecture
 
 ### 8.1 Domain tests
@@ -1071,7 +1086,7 @@ The human reviewer is not responsible for writing unit tests, inspecting interna
 
 The hardening program is complete only when all of the following are true:
 
-- CAN-001 through CAN-034 are fixed, explicitly deferred with rationale, or removed because a prerequisite redesign made them impossible.
+- CAN-001 through CAN-035 are fixed, explicitly deferred with rationale, or removed because a prerequisite redesign made them impossible.
 - INV-01 through INV-15 are represented by tests or static constraints.
 - The interaction state is a discriminated union with one active mode.
 - Geometry reports carry and enforce a complete projection version.

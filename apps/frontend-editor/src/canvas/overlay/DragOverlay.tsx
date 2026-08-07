@@ -12,14 +12,11 @@ import {
   worldRectStyle,
 } from './overlay-geometry'
 
-const DRAG_GHOST_OFFSET = 12
+const DRAG_IMAGE_OFFSET = 12
 const REJECTED_MESSAGE_GAP = 10
+const GLIDE_STEP = 0.4
 
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t
-}
-
-function SmoothGhost({
+function SmoothDragImage({
   targetX,
   targetY,
   initialX,
@@ -36,21 +33,14 @@ function SmoothGhost({
     x: initialX ?? targetX,
     y: initialY ?? targetY,
   })
-  const posRef = useRef({ x: initialX ?? targetX, y: initialY ?? targetY })
+  const posRef = useRef(pos)
+  posRef.current = pos
   const targetRef = useRef({ x: targetX, y: targetY })
-  const startedRef = useRef(false)
-  const rafRef = useRef<number | null>(null)
-
   targetRef.current = { x: targetX, y: targetY }
+  const rafRef = useRef(0)
+  const [exact, setExact] = useState(false)
 
   useEffect(() => {
-    posRef.current = { x: pos.x, y: pos.y }
-  }, [pos])
-
-  useEffect(() => {
-    if (!startedRef.current && initialX !== undefined && initialY !== undefined) {
-      startedRef.current = true
-    }
     const animate = () => {
       const current = posRef.current
       const target = targetRef.current
@@ -58,29 +48,29 @@ function SmoothGhost({
       const dy = target.y - current.y
       const dist = Math.hypot(dx, dy)
       if (dist < 0.5) {
+        posRef.current = target
         setPos({ x: target.x, y: target.y })
-        rafRef.current = null
+        setExact(true)
         return
       }
-      const t = Math.min(1, 0.18)
-      const next = { x: lerp(current.x, target.x, t), y: lerp(current.y, target.y, t) }
-      posRef.current = next
-      setPos(next)
+      const t = 1 - Math.exp(-GLIDE_STEP)
+      posRef.current = { x: current.x + dx * t, y: current.y + dy * t }
+      setPos(posRef.current)
       rafRef.current = requestAnimationFrame(animate)
     }
     rafRef.current = requestAnimationFrame(animate)
-    return () => {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
-      }
-    }
-  }, [targetX, targetY, initialX, initialY])
+    return () => cancelAnimationFrame(rafRef.current)
+  }, [])
+
+  useEffect(() => {
+    if (!exact) return
+    setPos({ x: targetX, y: targetY })
+  }, [targetX, targetY, exact])
 
   return (
     <div
-      className="canvas-drag-ghost"
-      style={{ left: pos.x, top: pos.y }}
+      className="canvas-drag-image"
+      style={{ left: pos.x, top: pos.y, transition: 'none' }}
     >
       {children}
     </div>
@@ -106,6 +96,15 @@ export function DragOverlay({
   settle,
   livePreview,
 }: DragOverlayProps) {
+  const lastViewportRef = useRef(viewport)
+  const viewportMoving =
+    viewport.panX !== lastViewportRef.current.panX ||
+    viewport.panY !== lastViewportRef.current.panY ||
+    viewport.scale !== lastViewportRef.current.scale
+  useEffect(() => {
+    lastViewportRef.current = viewport
+  }, [viewport])
+
   if (drag.status !== 'dragging' && settle === null) return null
 
   const settling = settle !== null
@@ -121,14 +120,13 @@ export function DragOverlay({
   const valid = target
   const rejected = drag.drop?.status === 'rejected' ? drag.drop : null
 
-  const noop = valid ? valid.noop : false
   const highlightId = valid ? valid.parentId : null
   const draggedRectId = drag.nodeId ?? draggedNode?.id
   const draggedRect = draggedRectId
     ? geometry.get(draggedRectId)?.rect
     : undefined
   const liveSlot =
-    livePreview && valid && !noop && livePreview.parentId === valid.parentId
+    livePreview && valid && livePreview.parentId === valid.parentId
       ? livePreview.rect
       : undefined
   const insertion = valid
@@ -151,24 +149,24 @@ export function DragOverlay({
 
   const pointerInLayer = viewportRect
     ? {
-        x: drag.ghostX - viewportRect.left,
-        y: drag.ghostY - viewportRect.top,
+        x: drag.imageX - viewportRect.left,
+        y: drag.imageY - viewportRect.top,
       }
-    : { x: drag.ghostX, y: drag.ghostY }
+    : { x: drag.imageX, y: drag.imageY }
 
-  const settlingGhost =
+  const settlingImage =
     settle?.kind === 'placed' && viewportRect
       ? {
-          x: settle.ghostX - viewportRect.left + DRAG_GHOST_OFFSET,
-          y: settle.ghostY - viewportRect.top + DRAG_GHOST_OFFSET,
+          x: settle.imageX - viewportRect.left + DRAG_IMAGE_OFFSET,
+          y: settle.imageY - viewportRect.top + DRAG_IMAGE_OFFSET,
         }
       : undefined
 
-  const ghostOffset =
-    draggedNode && viewportRect && (drag.status === 'dragging' || settlingGhost)
-      ? settlingGhost ?? {
-          x: pointerInLayer.x + DRAG_GHOST_OFFSET,
-          y: pointerInLayer.y + DRAG_GHOST_OFFSET,
+  const imageOffset =
+    draggedNode && viewportRect && (drag.status === 'dragging' || settlingImage)
+      ? settlingImage ?? {
+          x: pointerInLayer.x + DRAG_IMAGE_OFFSET,
+          y: pointerInLayer.y + DRAG_IMAGE_OFFSET,
         }
       : undefined
 
@@ -190,7 +188,10 @@ export function DragOverlay({
             'canvas-drop-highlight',
             settle?.kind === 'placed' ? 'canvas-drop-highlight-placed' : '',
           ].filter(Boolean).join(' ')}
-          style={worldRectStyle(highlightRect, viewport)}
+          style={{
+            ...worldRectStyle(highlightRect, viewport),
+            transition: viewportMoving ? 'none' : undefined,
+          }}
         />
       )}
       {insertionBand && viewportRect && (
@@ -199,36 +200,42 @@ export function DragOverlay({
             'canvas-insertion-band',
             settle?.kind === 'placed' ? 'canvas-insertion-band-placed' : '',
           ].filter(Boolean).join(' ')}
-          style={worldRectStyle(insertionBand, viewport)}
+          style={{
+            ...worldRectStyle(insertionBand, viewport),
+            transition: viewportMoving ? 'none' : undefined,
+          }}
         />
       )}
       {insertionRect && viewportRect && (
         <div
           className="canvas-insertion-line"
-          style={insertionStyle(insertionRect, viewport)}
+          style={{
+            ...insertionStyle(insertionRect, viewport),
+            transition: viewportMoving ? 'none' : undefined,
+          }}
         />
       )}
-      {ghostOffset && draggedNode && (() => {
+      {imageOffset && draggedNode && (() => {
         if (drag.status === 'dragging' && drag.originScreen && viewportRect) {
           const originInLayer = {
-            x: drag.originScreen.x - viewportRect.left + DRAG_GHOST_OFFSET,
-            y: drag.originScreen.y - viewportRect.top + DRAG_GHOST_OFFSET,
+            x: drag.originScreen.x - viewportRect.left + DRAG_IMAGE_OFFSET,
+            y: drag.originScreen.y - viewportRect.top + DRAG_IMAGE_OFFSET,
           }
           return (
-            <SmoothGhost
-              targetX={ghostOffset.x}
-              targetY={ghostOffset.y}
+            <SmoothDragImage
+              targetX={imageOffset.x}
+              targetY={imageOffset.y}
               initialX={originInLayer.x}
               initialY={originInLayer.y}
             >
               <NodeContent node={draggedNode} />
-            </SmoothGhost>
+            </SmoothDragImage>
           )
         }
         return (
           <div
-            className="canvas-drag-ghost"
-            style={{ left: ghostOffset.x, top: ghostOffset.y }}
+            className="canvas-drag-image"
+            style={{ left: imageOffset.x, top: imageOffset.y }}
           >
             <NodeContent node={draggedNode} />
           </div>
