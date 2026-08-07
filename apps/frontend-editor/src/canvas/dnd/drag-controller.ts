@@ -11,8 +11,8 @@ export interface DragState {
   startScreen: Point | null
   startTime: number
   pointerScreen: Point
-  ghostX: number
-  ghostY: number
+  imageX: number
+  imageY: number
   drop: DropTarget | null
   originScreen: Point | null
 }
@@ -21,8 +21,8 @@ export type SettleState =
   | {
       kind: 'placed'
       target: Extract<DropTarget, { status: 'valid' }>
-      ghostX: number
-      ghostY: number
+      imageX: number
+      imageY: number
     }
   | { kind: 'rejected'; message: string }
   | null
@@ -33,8 +33,8 @@ export const IDLE_DRAG_STATE: DragState = {
   startScreen: null,
   startTime: 0,
   pointerScreen: { x: 0, y: 0 },
-  ghostX: 0,
-  ghostY: 0,
+  imageX: 0,
+  imageY: 0,
   drop: null,
   originScreen: null,
 }
@@ -71,8 +71,8 @@ export class DragController {
       startScreen,
       startTime: Date.now(),
       pointerScreen: startScreen,
-      ghostX: startScreen.x,
-      ghostY: startScreen.y,
+      imageX: startScreen.x,
+      imageY: startScreen.y,
       drop: null,
       originScreen: originScreen ?? startScreen,
     }
@@ -108,8 +108,8 @@ export class DragController {
     this.state = {
       ...this.state,
       drop: computeDrop(pointerScreen),
-      ghostX: pointerScreen.x,
-      ghostY: pointerScreen.y,
+      imageX: pointerScreen.x,
+      imageY: pointerScreen.y,
     }
     this.emit()
     return true

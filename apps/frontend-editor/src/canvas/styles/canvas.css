@@ -173,7 +173,7 @@
   }
 }
 
-.canvas-drag-ghost {
+.canvas-drag-image {
   position: absolute;
   display: inline-flex;
   align-items: center;

@@ -293,10 +293,18 @@ export function useCanvasInteractions({
     geometryRef.current = geometryMap
     setGeometry(geometryMap)
     const nodeRect = geometryMap.get(nodeId)?.rect
-    const originScreen = nodeRect
+    const viewportElement = viewportRef.current
+    const viewportRect = viewportElement?.getBoundingClientRect()
+    const originScreen = nodeRect && viewportRect
       ? {
-          x: nodeRect.x * viewportRef2.current.scale + viewportRef2.current.panX,
-          y: nodeRect.y * viewportRef2.current.scale + viewportRef2.current.panY,
+          x:
+            viewportRect.left +
+            nodeRect.x * viewportRef2.current.scale +
+            viewportRef2.current.panX,
+          y:
+            viewportRect.top +
+            nodeRect.y * viewportRef2.current.scale +
+            viewportRef2.current.panY,
         }
       : null
     dragRef.current!.start(
@@ -374,12 +382,12 @@ export function useCanvasInteractions({
     const state = dragRef.current!.getState()
     if (state.status !== 'idle') {
       const lastDrop = state.drop
-      const ghostX = state.ghostX
-      const ghostY = state.ghostY
+      const imageX = state.imageX
+      const imageY = state.imageY
       dragRef.current!.drop()
       setHover(null)
       if (lastDrop?.status === 'valid' && !lastDrop.noop) {
-        setSettle({ kind: 'placed', target: lastDrop, ghostX, ghostY })
+        setSettle({ kind: 'placed', target: lastDrop, imageX, imageY })
       } else if (lastDrop?.status === 'rejected') {
         setSettle({ kind: 'rejected', message: lastDrop.reason })
       }
@@ -638,7 +646,7 @@ function computeLivePrevRect(
   viewport: import('../viewport/viewport').ViewportTransform,
 ): Rect | null {
   if (!state || state.status !== 'dragging' || state.nodeId == null) return null
-  if (!state.drop || state.drop.status !== 'valid' || state.drop.noop) return null
+  if (!state.drop || state.drop.status !== 'valid') return null
   const insertion = buildInsertionPreviewInternal(state.drop, geometry, state.nodeId)
   if (!insertion) return null
   const parent = getNode(document, parentId)

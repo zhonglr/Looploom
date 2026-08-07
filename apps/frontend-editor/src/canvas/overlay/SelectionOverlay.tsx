@@ -42,6 +42,7 @@ export function SelectionOverlay({
   if (hoverRect) {
     lastHoverRect.current = hoverRect
   }
+  const hoverBoxRect = hoverRect ?? lastHoverRect.current
 
   useEffect(() => {
     if (hoverRect) {
@@ -66,13 +67,15 @@ export function SelectionOverlay({
 
   return (
     <div className="canvas-overlay" aria-hidden="true">
-      <div
-        className="canvas-overlay-box canvas-overlay-box-hover"
-        style={{
-          ...boxStyle(hoverRect ?? lastHoverRect.current ?? { left: 0, top: 0, width: 0, height: 0 }),
-          opacity: hoverVisible && hoverRect ? 1 : 0,
-        }}
-      />
+      {hoverBoxRect && (
+        <div
+          className="canvas-overlay-box canvas-overlay-box-hover"
+          style={{
+            ...boxStyle(hoverBoxRect),
+            opacity: hoverVisible && hoverRect ? 1 : 0,
+          }}
+        />
+      )}
       {selectedRect && selectedNode && (
         <>
           <div
