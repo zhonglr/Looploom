@@ -340,27 +340,75 @@ flowchart TD
   W04 --> W05[W05 Frame session and projection synchronization]
   W05 --> W06[W06 Accepted geometry store and viewport units]
 
-  W01 --> W07[W07 Interaction state machine]
-  W06 --> W07
-  W02 --> W08[W08 Acknowledged drop transaction]
-  W07 --> W08
+  W01 --> W07A[W07A Interaction contracts and reducer tests]
+  W07A --> W07B[W07B Pointer session lifecycle]
+  W07B --> W07C[W07C Pressing and dragging migration]
+  W06 --> W07C
+  W07B --> W07D[W07D Panning migration]
 
-  W07 --> W09[W09 Overlay-only drag preview]
-  W06 --> W09
-  W08 --> W09
+  W02 --> W08[W08 Acknowledged drop transaction]
+  W07C --> W08
+  W08 --> W07E[W07E Settle and no-op migration]
+
+  W01 --> W09A[W09A Pure overlay geometry extraction]
+  W07C --> W09B[W09B Stable source projection]
+  W09A --> W09C[W09C Overlay-only target preview]
+  W09B --> W09C
+  W08 --> W09C
+  W09C --> W09D[W09D Remove frame preview mutation]
 
   W05 --> W10[W10 Recoverable editing session]
-  W07 --> W10
+  W07A --> W10
 
-  W07 --> W11[W11 Keyboard and accessibility]
-  W09 --> W11
-  W10 --> W11
+  W07C --> W07F[W07F Final mode arbitration and legacy removal]
+  W07D --> W07F
+  W07E --> W07F
+  W10 --> W07F
+
+  W07F --> W11[W11 Keyboard and accessibility]
+  W09C --> W11
 
   W11 --> W12[W12 Primitive, token, and motion compliance]
+  W09D --> W13[W13 Cleanup, performance, and final browser matrix]
   W12 --> W13[W13 Cleanup, performance, and final browser matrix]
 ```
 
 Work packages should be separate commits where practical. Do not combine protocol migration, interaction migration, and visual cleanup in one commit.
+
+### 6.1 Incremental interaction migration
+
+W07 is a migration sequence, not one implementation branch. Each sub-package must be independently mergeable and must leave the Canvas operational.
+
+| Package | Scope | Must not include | Exit condition | Can proceed in parallel with |
+| --- | --- | --- | --- | --- |
+| W07A | Define interaction state and event unions, pure reducer, transition table, and exhaustive reducer tests | React rewiring, visual changes, protocol changes | Pure tests cover every allowed and forbidden transition; runtime behavior is unchanged | W02 through W06, W09A |
+| W07B | Introduce active pointer ID ownership, capture/release adapter, and global cancellation events | Drag target changes, pan algorithm changes, overlay changes | Existing drag and pan behavior use one pointer lifecycle and always terminate | W09A, W10 after W07A |
+| W07C | Move pending/pressing and active drag transitions from `DragController` and scattered React state into the reducer | Panning migration, editing draft migration, overlay redesign | Drag activation, target updates, cancellation, and revision invalidation are reducer-owned; old drag state is removed | W07D after W07B |
+| W07D | Move middle-button and Space-primary panning into the reducer while preserving viewport math | Drag feedback redesign, keyboard navigation features | Drag and pan are type-level mutually exclusive and share cancellation lifecycle | W07C after W07B |
+| W07E | Move committed, rejected, no-op, cancelled, and timeout feedback into exclusive settle states | User-component preview redesign | Settle has complete render data, cannot overlap a new gesture, and follows command results | W09B and W09C preparation |
+| W07F | Integrate editing mode arbitration, remove legacy refs/controllers, and make the reducer the only interaction owner | New accessibility features or visual restyling | No primary mode is dual-owned; legacy `DragController` and mirrored state paths are deleted | W09C or W09D |
+
+Migration rules:
+
+1. Do not run the reducer and legacy code as writable owners of the same state.
+2. Migrate one state slice at a time and delete its legacy writes in the same sub-package.
+3. Keep selectors or read-only adapters only when they are required by unmigrated consumers.
+4. Do not introduce a long-lived feature flag for internal interaction state.
+5. Run the complete existing browser matrix after every sub-package, not only after W07F.
+6. Permit W08, W09, and W10 work as soon as their narrow prerequisites are complete; they must not wait for W07F unless they require final mode arbitration.
+
+### 6.2 Incremental overlay-only preview migration
+
+W09 must also avoid a one-step replacement of the drag rendering pipeline.
+
+| Package | Scope | Must not include | Exit condition | Can proceed in parallel with |
+| --- | --- | --- | --- | --- |
+| W09A | Extract insertion metrics, coordinate conversion, and no-op presentation into pure TypeScript with characterization tests | Runtime layout changes, interaction state changes | Existing visuals are preserved and geometry algorithms are covered without React | W04 through W07B |
+| W09B | Keep the real dragged source node mounted and stable during drag; move source dimming to editor-owned presentation where possible | Target preview removal | Stateful source component mount count and local state remain stable during drag | W07D, W07E |
+| W09C | Render target insertion band, line, highlight, and ghost entirely from accepted geometry in the Host overlay | Protocol and CSS cleanup unrelated to the preview | Target feedback no longer requires inserting the dragged node into the live target tree | W07E, W10 |
+| W09D | Remove frame insertion-preview mutation, preview registries, dead protocol fields, displaced state, and obsolete frame CSS | New interaction behavior | Frame runtime returns to a read-only document projection and all obsolete paths are deleted | W11, W12 |
+
+W09B is intentionally separate from W09C. Stabilizing the source component is the highest-value runtime isolation fix and can land before the complete target-preview replacement.
 
 ## 7. Detailed issue catalog
 
@@ -538,7 +586,7 @@ Work packages should be separate commits where practical. Do not combine protoco
 | Evidence | `interaction/useCanvasInteractions.ts:222-246,296-333` |
 | Problem | Pan captures the pointer, but node drag candidate does not. Pointer up outside the hit layer is not guaranteed to arrive. |
 | Impact | Pending or dragging state, ghost, insertion preview, and auto-pan can remain active after release. |
-| Dependencies | W07 interaction state machine |
+| Dependencies | W07B pointer session lifecycle |
 | Allowed scope | Host pointer lifecycle, interaction reducer, browser tests |
 | Repair | Capture on every accepted primary interaction, store `pointerId`, ignore other pointers, release on completion, and cancel on `lostpointercapture`. |
 | Expected result | Every pointer session terminates exactly once. |
@@ -568,7 +616,7 @@ Work packages should be separate commits where practical. Do not combine protoco
 | Evidence | `dnd/drag-controller.ts:85-93` |
 | Problem | Activation requires distance and elapsed time, but elapsed time is evaluated only in `move()`. Moving far quickly and then waiting does not activate without another move. |
 | Impact | Valid-looking drag gestures are silently treated as clicks. |
-| Dependencies | W07 |
+| Dependencies | W07C pressing and dragging migration |
 | Allowed scope | Interaction activation policy and tests |
 | Repair | Define the intended policy first. If both delay and distance are required, dispatch an explicit timer event and retain current pointer. If distance alone is intended, remove the time gate. |
 | Expected result | Activation behavior is deterministic and documented. |
@@ -583,7 +631,7 @@ Work packages should be separate commits where practical. Do not combine protoco
 | Evidence | `interaction/useCanvasInteractions.ts:342-389` |
 | Problem | Delete, Undo, and Redo execute while drag geometry is frozen against an earlier document revision. |
 | Impact | The dragged node or target structure can change mid-gesture, then release attempts a stale move. |
-| Dependencies | CAN-005, CAN-007, W07 |
+| Dependencies | CAN-005, CAN-007, W07C |
 | Allowed scope | Keyboard semantic mapping and interaction transitions |
 | Repair | While pressing or dragging, allow only cancellation and documented drag controls. Cancel active drag when an incompatible document revision arrives. |
 | Expected result | Drop geometry and document revision remain compatible for the complete gesture. |
@@ -613,7 +661,7 @@ Work packages should be separate commits where practical. Do not combine protoco
 | Evidence | `dnd/drag-controller.ts:19-27`, `interaction/useCanvasInteractions.ts:301-317`, `overlay/DragOverlay.tsx:34-102` |
 | Problem | Placed settle lacks node ID; rejected settle lacks pointer coordinates. A new pointer down does not clear the old settle timer and state. |
 | Impact | Placed ghost cannot render after drag reset, rejection disappears immediately, and a rapid next drag can inherit the previous fade animation. |
-| Dependencies | W07, CAN-016 |
+| Dependencies | W07E and CAN-016 |
 | Allowed scope | Interaction state union, timer lifecycle, DragOverlay props |
 | Repair | Make settling a complete exclusive machine state. Store all rendering data and clear its timer on every outgoing transition. |
 | Expected result | Feedback renders independently of old drag state and never affects a new gesture. |
@@ -628,7 +676,7 @@ Work packages should be separate commits where practical. Do not combine protoco
 | Evidence | `overlay/DragOverlay.tsx:55-60,231-233`, `interaction/useCanvasInteractions.ts:129-137` |
 | Problem | No-op now reaches `insertionMetrics`, although the function assumes it cannot. At the same time, real `liveSlot` geometry is disabled for no-op. |
 | Impact | A node dragged over its own position can show an insertion band over a neighbor or an expanded parent. |
-| Dependencies | W09 overlay preview design |
+| Dependencies | W09A geometry extraction and W09C target preview |
 | Allowed scope | Pure insertion geometry and no-op UX policy |
 | Repair | Decide whether no-op shows source-position feedback or no insertion feedback. Encode it as a separate target presentation rather than passing through move metrics. |
 | Expected result | No-op feedback is visually stable and cannot imply a structural move. |
@@ -643,7 +691,7 @@ Work packages should be separate commits where practical. Do not combine protoco
 | Evidence | `runtime/DocumentRuntime.tsx:125-198,212-231` |
 | Problem | Runtime removes the source node and renders it under a target slot during drag. This unmounts and remounts the projected user component and mutates real layout. |
 | Impact | Stateful or third-party components can lose local state, run effects, close portals, or change behavior during an editor-only gesture. Geometry also enters a feedback loop. |
-| Dependencies | CAN-005 through CAN-007, W07, CAN-016 |
+| Dependencies | CAN-005 through CAN-007, W07C, CAN-016, W09B, and W09C |
 | Allowed scope | Runtime projection contract, frame measurement, Host overlay, optional non-interactive frame placeholder |
 | Repair | Keep the real document projection structurally unchanged. Render ghost, insertion band, highlight, and displacement in an editor-owned overlay. If exact target sizing requires frame measurement, use a separate isolated measurement surface that is not the live user tree. |
 | Expected result | Dragging never changes component identity or user runtime state before commit. |
@@ -688,7 +736,7 @@ Work packages should be separate commits where practical. Do not combine protoco
 | Evidence | `frame/FrameRoot.tsx:20,38-43`, `runtime/DocumentRuntime.tsx:302-315` |
 | Problem | Host owns only editing identity while iframe owns the current draft. `FrameEditingState.initialValue` is sent but not used as a controlled value. `editingValueRef` is threaded through the runtime but passed as `undefined`. |
 | Impact | Frame reload loses uncommitted input, protocol state cannot recover, and dead compatibility paths increase complexity. |
-| Dependencies | CAN-008 and W07 |
+| Dependencies | CAN-008 and W07A; implemented in W10 |
 | Allowed scope | Editing protocol, interaction state, InlineEditor props, dead ref removal |
 | Repair | Store draft in Host interaction state. Add validated `editChange` events and send controlled draft in interaction projection. Recover it after frame reload. |
 | Expected result | Editing has one owner and survives projection recreation. |
@@ -748,7 +796,7 @@ Work packages should be separate commits where practical. Do not combine protoco
 | Evidence | `interaction/useCanvasInteractions.ts:61-552` |
 | Problem | One Hook owns pointer input, keyboard commands, timers, auto-pan, frame protocol handling, geometry conversion, editing, drag commit, and insertion algorithms. |
 | Impact | State transitions are implicit, effects are difficult to test, and unrelated changes can violate hidden combinations. |
-| Dependencies | W04, W06, W07 |
+| Dependencies | W04, W06, and W07A through W07F |
 | Allowed scope | Split by responsibility, not by arbitrary line count |
 | Repair | Extract a pure interaction reducer, protocol adapter, auto-pan lifecycle, accepted geometry store, and pure insertion-preview selectors. Keep the React Hook as a thin binding layer. |
 | Expected result | Core transitions can be tested in Node without React or DOM. |
@@ -763,7 +811,7 @@ Work packages should be separate commits where practical. Do not combine protoco
 | Evidence | `overlay/DragOverlay.tsx:178-403` |
 | Problem | Rendering, coordinate conversion, live-slot reconciliation, and insertion geometry are coupled in one TSX module. |
 | Impact | Geometry regressions require browser-level debugging and no-op assumptions drift from callers. |
-| Dependencies | W09 |
+| Dependencies | W09A |
 | Allowed scope | Overlay module and pure geometry tests |
 | Repair | Move insertion metrics and projection conversion to named pure TypeScript modules with explicit coordinate-space types. Keep DragOverlay declarative. |
 | Expected result | Row, column, empty, edge, middle, no-op, and live-measurement cases are deterministic unit tests. |
@@ -778,7 +826,7 @@ Work packages should be separate commits where practical. Do not combine protoco
 | Evidence | `CanvasView.tsx:165-190`, `interaction/useCanvasInteractions.ts:342-389`, `runtime/DocumentRuntime.tsx:258-269`, `overlay/DragOverlay.tsx:104-160` |
 | Problem | Essential movement is pointer-only. Rejection status is inside `aria-hidden`. Runtime buttons are removed from tab order, and the application surface does not expose active descendant semantics. |
 | Impact | Keyboard and assistive-technology users cannot perform or understand core Canvas operations. |
-| Dependencies | Stable W07 interaction semantics and W09 feedback model |
+| Dependencies | W07F final mode arbitration, W09C overlay target preview, and W10 editing session |
 | Allowed scope | Keyboard command mapping, focus model, ARIA status component, browser accessibility tests |
 | Repair | Implement the keyboard contract from `docs/canvas-functionalities.md:264-283`, including traversal, editing, structural navigation, reorder, keyboard drop target selection, and polite status announcements. |
 | Expected result | Essential edit operations do not require drag. Focus and status are observable. |
@@ -808,7 +856,7 @@ Work packages should be separate commits where practical. Do not combine protoco
 | Evidence | Native toolbar buttons in `CanvasView.tsx:126-160`; raw values in `styles/canvas.css:64-255` |
 | Problem | Toolbar controls are feature-local native buttons. Overlay CSS uses anonymous shadows, z-index values, 150/190 ms timings, custom easing, and no reduced-motion rule. |
 | Impact | Focus, disabled behavior, motion, and visual rules diverge from platform components and Spectrum token policy. |
-| Dependencies | Stable behavior from W07 through W11 |
+| Dependencies | Stable behavior from W07F through W11 |
 | Allowed scope | Canvas toolbar, shared primitives when necessary, Canvas host CSS |
 | Repair | Use platform ActionButton or IconButton primitives. Replace platform visual values with verified semantic tokens or named product tokens. Add `prefers-reduced-motion: reduce`. |
 | Expected result | Canvas platform UI follows one component and token system without changing user document styles. |
@@ -838,7 +886,7 @@ Work packages should be separate commits where practical. Do not combine protoco
 | Evidence | Unused `editingValueRef`, unused `.canvas-node-preview`, ineffective displaced state, `FramePreviewSlot` world-coordinate comment while carrying frame client rects |
 | Problem | Types, comments, props, and CSS describe behavior that does not match runtime ownership or units. |
 | Impact | Future changes can double-convert coordinates or preserve state that has no effect. |
-| Dependencies | Complete W06, W09, and W10 first |
+| Dependencies | Complete W06, W09D, and W10 first |
 | Allowed scope | Remove dead props, selectors, CSS, exports, and stale comments |
 | Repair | Keep one name per concept, encode coordinate space in type names, and delete obsolete compatibility paths. |
 | Expected result | Public and internal contracts describe actual behavior. |
@@ -988,20 +1036,28 @@ The hardening program is complete only when all of the following are true:
 
 ## 12. Recommended delivery sequence
 
-| Order | Work package | Exit condition |
-| --- | --- | --- |
-| 1 | W01 Test foundation | Unit and browser runners work from a fresh checkout |
-| 2 | W02 Domain move and history | Move matrix and transactional history tests pass |
-| 3 | W03 Document invariants | Duplicate IDs cannot enter a session |
-| 4 | W04 Protocol validation and version contract | Invalid and stale messages are rejected |
-| 5 | W05 Frame session synchronization | Frame reload recovers deterministically |
-| 6 | W06 Geometry store and viewport units | Geometry is version-safe and Fit is idempotent |
-| 7 | W07 Interaction state machine | One mode and one pointer lifecycle are enforced |
-| 8 | W08 Acknowledged drop | Feedback follows command result |
-| 9 | W09 Overlay-only preview | Drag does not remount user components |
-| 10 | W10 Editing session | Draft and selection races are resolved |
-| 11 | W11 Keyboard and accessibility | Essential workflows are keyboard accessible |
-| 12 | W12 Primitive, token, and motion compliance | Platform UI meets frontend standards |
-| 13 | W13 Cleanup and final matrix | Dead paths removed and every gate passes |
+| Stage | Work package | Exit condition | Parallelism |
+| --- | --- | --- | --- |
+| 1 | W01 Test foundation | Unit and browser runners work from a fresh checkout | Blocks all behavior changes |
+| 2 | W02 Domain move and history | Move matrix and transactional history tests pass | Parallel with W03, W04, W07A, W09A |
+| 2 | W03 Document invariants | Duplicate IDs cannot enter a session | Parallel with W02, W04, W07A, W09A |
+| 2 | W04 Protocol validation and version contract | Invalid and stale messages are rejected | Parallel with W02, W03, W07A, W09A |
+| 2 | W07A Interaction contracts | Pure transition model is exhaustive; runtime behavior is unchanged | Parallel with W02 through W04 and W09A |
+| 2 | W09A Overlay geometry extraction | Existing visuals are characterized by pure tests | Parallel with W02 through W07A |
+| 3 | W05 Frame session synchronization | Frame reload recovers deterministically | Parallel with W07B |
+| 3 | W07B Pointer session lifecycle | Capture, pointer ID, and global cancellation are reliable | Parallel with W05 and W09A |
+| 4 | W06 Geometry store and viewport units | Geometry is version-safe and Fit is idempotent | Parallel with W10 preparation |
+| 4 | W10 Editing session | Draft is Host-owned and reload-safe | Starts after W05 and W07A; does not wait for drag migration |
+| 5 | W07C Pressing and dragging migration | Reducer owns drag candidate and active drag | Parallel with W07D after W07B; consumes W06 geometry |
+| 5 | W07D Panning migration | Reducer owns panning and excludes drag | Parallel with W07C |
+| 6 | W08 Acknowledged drop | Feedback input follows command result | Starts after W02 and W07C |
+| 6 | W09B Stable source projection | Drag does not remount or move the real source component | Can overlap W07E preparation |
+| 7 | W07E Settle and no-op migration | Result feedback is complete and exclusive | Starts after W08 |
+| 7 | W09C Overlay-only target preview | Target preview no longer mutates the live frame tree | Starts after W08, W09A, and W09B |
+| 8 | W07F Final mode arbitration | Editing, drag, pan, and settle have one owner; legacy paths are gone | Starts after W07C through W07E and W10 |
+| 8 | W09D Remove frame preview mutation | Preview protocol, registries, and frame mutation are deleted | Starts after W09C |
+| 9 | W11 Keyboard and accessibility | Essential workflows are keyboard accessible | Starts after W07F, W09C, and W10 |
+| 10 | W12 Primitive, token, and motion compliance | Platform UI meets frontend standards | Starts after behavior stabilizes in W11 |
+| 11 | W13 Cleanup and final matrix | Dead paths removed and every gate passes | Starts after W09D and W12 |
 
-This order is intentional. Visual cleanup must not precede state and protocol correctness, and the interaction rewrite must not consume unversioned geometry.
+This order is intentional. W07 and W09 are incremental lanes rather than blocking rewrites. Domain, protocol, editing, pointer lifecycle, and pure overlay work can advance in parallel once their narrow prerequisites are satisfied. Visual cleanup must still follow stable behavior, and drag migration must not consume unversioned geometry.
